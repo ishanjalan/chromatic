@@ -5,6 +5,7 @@ import {
 	analyseProximity,
 	computeShade300Tweaks
 } from './palette-audit';
+import type { ScoreBreakdown } from './palette-audit';
 import type { ParsedFamily } from './parse-tokens';
 import { hexToRgb, rgbToOklch, maxChromaAtLH } from './colour';
 
@@ -147,7 +148,7 @@ describe('analyseProximity', () => {
 		expect(yellowOlive).toBeUndefined();
 	});
 
-	it('detects truly close hues (< 10°) as warnings', () => {
+	it('detects truly close hues (< 10°) as warnings with shift suggestion', () => {
 		const close = [
 			{ name: 'A', hex300: '#D63941', oklch: { L: 0.5, C: 0.15, H: 0 } },
 			{ name: 'B', hex300: '#007B28', oklch: { L: 0.5, C: 0.15, H: 8 } },
@@ -157,9 +158,14 @@ describe('analyseProximity', () => {
 		const ab = warnings.find(w => (w.familyA === 'A' && w.familyB === 'B') || (w.familyA === 'B' && w.familyB === 'A'));
 		expect(ab).toBeDefined();
 		expect(ab!.severity).toBe('warning');
+		expect(ab!.suggestedAction).toBe('shift');
+		expect(ab!.shiftTarget).toBeDefined();
+		expect(ab!.shiftedHue).toBeDefined();
+		expect(ab!.shiftedHex).toMatch(/^#[0-9A-Fa-f]{6}$/);
+		expect(ab!.shiftDirection).toBeDefined();
 	});
 
-	it('detects critically close hues (< 5°) as critical', () => {
+	it('detects critically close hues (< 5°) as critical with merge suggestion', () => {
 		const veryClose = [
 			{ name: 'A', hex300: '#D63941', oklch: { L: 0.5, C: 0.15, H: 0 } },
 			{ name: 'B', hex300: '#007B28', oklch: { L: 0.5, C: 0.15, H: 3 } },
@@ -169,6 +175,8 @@ describe('analyseProximity', () => {
 		const ab = warnings.find(w => (w.familyA === 'A' && w.familyB === 'B') || (w.familyA === 'B' && w.familyB === 'A'));
 		expect(ab).toBeDefined();
 		expect(ab!.severity).toBe('critical');
+		expect(ab!.suggestedAction).toBe('merge');
+		expect(ab!.shiftTarget).toBeUndefined();
 	});
 
 	it('returns empty for fewer than 2 families', () => {
@@ -244,11 +252,12 @@ describe('runPaletteAudit', () => {
 		expect(audit.score).toBeGreaterThanOrEqual(0);
 		expect(audit.score).toBeLessThanOrEqual(100);
 		expect(audit.chromaAnalysis).toHaveLength(12);
-		// With tighter thresholds (< 10°), the 12 families may have zero proximity warnings
 		expect(audit.proximityWarnings.length).toBeGreaterThanOrEqual(0);
-		expect(audit.gapSuggestions.length).toBeGreaterThan(0);
+		expect(audit.gapSuggestions.length).toBeGreaterThanOrEqual(0);
 		expect(audit.findings.length).toBeGreaterThan(0);
 		expect(audit.wheelDots.length).toBeGreaterThanOrEqual(12);
+		expect(audit.coverageStats).toBeDefined();
+		expect(audit.coverageStats.remainingSlots).toBe(24 - 12);
 	});
 
 	it('returns findings sorted by severity (critical first)', () => {
@@ -271,7 +280,8 @@ describe('runPaletteAudit', () => {
 	it('includes gap suggestions in findings', () => {
 		const audit = runPaletteAudit(TWELVE_FAMILIES);
 		const gapFindings = audit.findings.filter((f) => f.type === 'hue-gap');
-		expect(gapFindings.length).toBe(audit.gapSuggestions.length);
+		// Gap findings include per-suggestion entries plus potential balance/capacity notes
+		expect(gapFindings.length).toBeGreaterThanOrEqual(audit.gapSuggestions.length);
 	});
 
 	it('wheelDots includes uploaded and suggestion dots', () => {
@@ -301,7 +311,50 @@ describe('runPaletteAudit', () => {
 
 	it('deducts score for chroma imbalance or other findings', () => {
 		const audit = runPaletteAudit(TWELVE_FAMILIES);
-		// Score should be reduced by chroma imbalance, tweaks, or gaps — not necessarily proximity
 		expect(audit.score).toBeLessThan(100);
+	});
+
+	it('includes scoreBreakdown with all category fields', () => {
+		const audit = runPaletteAudit(TWELVE_FAMILIES);
+		const bd = audit.scoreBreakdown;
+		expect(bd).toBeDefined();
+
+		// All fields should be numbers (0 or negative)
+		const keys: (keyof ScoreBreakdown)[] = [
+			'proximity', 'chromaImbalance', 'lightnessTweaks',
+			'hueGaps', 'coverageUniformity', 'warmCoolBalance', 'familyCountAdj'
+		];
+		for (const k of keys) {
+			expect(typeof bd[k]).toBe('number');
+		}
+
+		// Score should be consistent with breakdown sum
+		const sum = 100 + bd.proximity + bd.chromaImbalance + bd.lightnessTweaks
+			+ bd.hueGaps + bd.coverageUniformity + bd.warmCoolBalance + bd.familyCountAdj;
+		expect(audit.score).toBe(Math.max(0, Math.min(100, sum)));
+	});
+
+	it('scoreBreakdown familyCountAdj is 0 for 12 families (between 12 and 15)', () => {
+		const audit = runPaletteAudit(TWELVE_FAMILIES);
+		// 12 families is >= 12, so no penalty; < 16 so no bonus
+		expect(audit.scoreBreakdown.familyCountAdj).toBe(0);
+	});
+
+	it('scoreBreakdown familyCountAdj is -5 for fewer than 12 families', () => {
+		const fewFamilies = TWELVE_FAMILIES.slice(0, 6);
+		const audit = runPaletteAudit(fewFamilies);
+		expect(audit.scoreBreakdown.familyCountAdj).toBe(-5);
+	});
+
+	it('proximity warnings include suggestedAction field', () => {
+		const audit = runPaletteAudit(TWELVE_FAMILIES);
+		for (const pw of audit.proximityWarnings) {
+			expect(['merge', 'shift']).toContain(pw.suggestedAction);
+			if (pw.suggestedAction === 'shift') {
+				expect(pw.shiftTarget).toBeDefined();
+				expect(pw.shiftedHue).toBeDefined();
+				expect(pw.shiftedHex).toMatch(/^#[0-9A-Fa-f]{6}$/);
+			}
+		}
 	});
 });

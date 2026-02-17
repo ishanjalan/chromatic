@@ -18,11 +18,11 @@ import {
 	clampChromaToGamut,
 	hueDelta
 } from './colour';
-import { TARGET_CURVE, ACHROMATIC_THRESHOLD } from './constants';
+import { TARGET_CURVE, ACHROMATIC_THRESHOLD, MAX_PALETTE_SIZE } from './constants';
 import type { ParsedFamily } from './parse-tokens';
 import { familiesToHueDots } from './parse-tokens';
-import { analyseHueGaps, suggestionsToHueDots } from './gap-analysis';
-import type { GapSuggestion } from './gap-analysis';
+import { analyseHueGaps, suggestionsToHueDots, computeCoverageStats } from './gap-analysis';
+import type { GapSuggestion, CoverageStats } from './gap-analysis';
 import type { HueDot } from './components/HueWheel.svelte';
 
 // ── Interfaces ──────────────────────────────────────────────────────
@@ -50,6 +50,11 @@ export interface ProximityWarning {
 	hueDelta: number;
 	severity: 'critical' | 'warning';
 	suggestion: string;
+	suggestedAction: 'merge' | 'shift';
+	shiftTarget?: string;
+	shiftDirection?: number;
+	shiftedHue?: number;
+	shiftedHex?: string;
 }
 
 export interface Shade300Tweak {
@@ -72,8 +77,19 @@ export interface AuditFinding {
 	message: string;
 }
 
+export interface ScoreBreakdown {
+	proximity: number;
+	chromaImbalance: number;
+	lightnessTweaks: number;
+	hueGaps: number;
+	coverageUniformity: number;
+	warmCoolBalance: number;
+	familyCountAdj: number;
+}
+
 export interface PaletteAudit {
 	score: number;
+	scoreBreakdown: ScoreBreakdown;
 	familyCount: number;
 	chromaAnalysis: ChromaAnalysis[];
 	proximityWarnings: ProximityWarning[];
@@ -82,6 +98,8 @@ export interface PaletteAudit {
 	findings: AuditFinding[];
 	/** All dots for the hue wheel (uploaded + suggestions) */
 	wheelDots: HueDot[];
+	/** Coverage uniformity statistics */
+	coverageStats: CoverageStats;
 }
 
 // ── Thresholds ──────────────────────────────────────────────────────
@@ -176,30 +194,66 @@ export function analyseProximity(families: FamilyOklch[]): ProximityWarning[] {
 
 	for (let i = 0; i < sorted.length; i++) {
 		const a = sorted[i];
-		const b = sorted[(i + 1) % sorted.length];
+		const bIdx = (i + 1) % sorted.length;
+		const b = sorted[bIdx];
 		const delta = hueDelta(a.oklch.H, b.oklch.H);
 
-		if (delta < PROXIMITY_CRITICAL) {
-			warnings.push({
-				familyA: a.name,
-				familyB: b.name,
-				hueA: a.oklch.H,
-				hueB: b.oklch.H,
-				hueDelta: delta,
-				severity: 'critical',
-				suggestion: `${a.name} and ${b.name} are only ${delta.toFixed(1)}° apart — they will be nearly indistinguishable in UI. Consider merging them into one family or repositioning one to a different hue.`
-			});
-		} else if (delta < PROXIMITY_WARNING) {
-			warnings.push({
-				familyA: a.name,
-				familyB: b.name,
-				hueA: a.oklch.H,
-				hueB: b.oklch.H,
-				hueDelta: delta,
-				severity: 'warning',
-				suggestion: `${a.name} and ${b.name} are ${delta.toFixed(1)}° apart — they may look similar at lighter tints (50/100 shades). Consider whether both are needed.`
-			});
+		if (delta >= PROXIMITY_WARNING) continue;
+
+		const isCritical = delta < PROXIMITY_CRITICAL;
+		const suggestedAction: 'merge' | 'shift' = isCritical ? 'merge' : 'shift';
+
+		let shiftTarget: string | undefined;
+		let shiftDirection: number | undefined;
+		let shiftedHue: number | undefined;
+		let shiftedHex: string | undefined;
+
+		if (!isCritical) {
+			// For shift: determine which family has more room on its other side
+			const prevIdxA = (i - 1 + sorted.length) % sorted.length;
+			const nextIdxB = (bIdx + 1) % sorted.length;
+			const roomA = hueDelta(sorted[prevIdxA].oklch.H, a.oklch.H);
+			const roomB = hueDelta(b.oklch.H, sorted[nextIdxB].oklch.H);
+
+			if (roomB >= roomA) {
+				// Shift B away from A (clockwise)
+				shiftTarget = b.name;
+				const targetHue = (b.oklch.H + roomB / 2) % 360;
+				shiftedHue = targetHue;
+				shiftDirection = roomB / 2;
+				const newC = clampChromaToGamut(b.oklch.L, b.oklch.C, targetHue);
+				const rgb = oklchToRgb(b.oklch.L, newC, targetHue);
+				shiftedHex = rgbToHex(rgb.r, rgb.g, rgb.b);
+			} else {
+				// Shift A away from B (counter-clockwise)
+				shiftTarget = a.name;
+				const targetHue = (a.oklch.H - roomA / 2 + 360) % 360;
+				shiftedHue = targetHue;
+				shiftDirection = -(roomA / 2);
+				const newC = clampChromaToGamut(a.oklch.L, a.oklch.C, targetHue);
+				const rgb = oklchToRgb(a.oklch.L, newC, targetHue);
+				shiftedHex = rgbToHex(rgb.r, rgb.g, rgb.b);
+			}
 		}
+
+		const suggestion = isCritical
+			? `${a.name} and ${b.name} are only ${delta.toFixed(1)}° apart — they will be nearly indistinguishable. Consider merging them into one family.`
+			: `${a.name} and ${b.name} are ${delta.toFixed(1)}° apart — they may look similar at lighter tints.${shiftTarget ? ` Shift ${shiftTarget} ${Math.abs(shiftDirection!).toFixed(0)}° ${shiftDirection! > 0 ? 'clockwise' : 'counter-clockwise'} to increase separation.` : ''}`;
+
+		warnings.push({
+			familyA: a.name,
+			familyB: b.name,
+			hueA: a.oklch.H,
+			hueB: b.oklch.H,
+			hueDelta: delta,
+			severity: isCritical ? 'critical' : 'warning',
+			suggestion,
+			suggestedAction,
+			shiftTarget,
+			shiftDirection,
+			shiftedHue,
+			shiftedHex
+		});
 	}
 
 	return warnings;
@@ -273,33 +327,53 @@ function computeScore(
 	chromaResults: ChromaAnalysis[],
 	tweaks: Shade300Tweak[],
 	gapSuggestions: GapSuggestion[],
-	familyCount: number
-): number {
-	let score = 100;
+	familyCount: number,
+	coverage: CoverageStats
+): { score: number; breakdown: ScoreBreakdown } {
+	const bd: ScoreBreakdown = {
+		proximity: 0,
+		chromaImbalance: 0,
+		lightnessTweaks: 0,
+		hueGaps: 0,
+		coverageUniformity: 0,
+		warmCoolBalance: 0,
+		familyCountAdj: 0
+	};
 
 	for (const pw of proximity) {
-		score -= pw.severity === 'critical' ? 15 : 5;
+		bd.proximity -= pw.severity === 'critical' ? 15 : 5;
 	}
 
 	for (const ca of chromaResults) {
-		if (Math.abs(ca.deviation) > 0.10) score -= 3;
+		if (Math.abs(ca.deviation) > 0.10) bd.chromaImbalance -= 3;
 	}
 
 	for (const t of tweaks) {
-		if (t.reasons.some((r) => r.includes('Lightness'))) score -= 5;
+		if (t.reasons.some((r) => r.includes('Lightness'))) bd.lightnessTweaks -= 5;
 	}
 
-	// Gap penalty: proportional to largest gaps
 	for (const gs of gapSuggestions) {
-		if (gs.gapSize > 50) score -= 3;
-		else if (gs.gapSize > 35) score -= 1;
+		if (gs.gapSize > 50) bd.hueGaps -= 3;
+		else if (gs.gapSize > 35) bd.hueGaps -= 1;
 	}
 
-	// Bonus for having a good number of families (16-20 is ideal)
-	if (familyCount >= 16 && familyCount <= 20) score += 5;
-	else if (familyCount < 12) score -= 5;
+	if (familyCount >= 4 && coverage.gapStdDev > 0) {
+		const idealGap = 360 / familyCount;
+		const normalizedStdDev = coverage.gapStdDev / idealGap;
+		bd.coverageUniformity = -Math.min(10, Math.round(normalizedStdDev * 10));
+	}
 
-	return Math.max(0, Math.min(100, score));
+	if (coverage.balance === 'warm-heavy' || coverage.balance === 'cool-heavy') {
+		bd.warmCoolBalance = -3;
+	}
+
+	if (familyCount >= 16 && familyCount <= 20) bd.familyCountAdj = 5;
+	else if (familyCount < 12) bd.familyCountAdj = -5;
+
+	const raw = 100 + bd.proximity + bd.chromaImbalance + bd.lightnessTweaks
+		+ bd.hueGaps + bd.coverageUniformity + bd.warmCoolBalance + bd.familyCountAdj;
+
+	return { score: Math.max(0, Math.min(100, raw)), breakdown: bd };
 }
 
 // ── Main entry point ────────────────────────────────────────────────
@@ -313,6 +387,7 @@ export function runPaletteAudit(families: ParsedFamily[]): PaletteAudit {
 	const proximityWarnings = analyseProximity(familyOklch);
 	const shade300Tweaks = computeShade300Tweaks(familyOklch, chromaAnalysis);
 	const gapSuggestions = analyseHueGaps(uploadedDots);
+	const coverageStats = computeCoverageStats(uploadedDots);
 
 	// Build findings (prioritised)
 	const findings: AuditFinding[] = [];
@@ -350,7 +425,24 @@ export function runPaletteAudit(families: ParsedFamily[]): PaletteAudit {
 		findings.push({
 			type: 'hue-gap',
 			severity: gs.gapSize > 50 ? 'warning' : 'info',
-			message: `${gs.gapSize.toFixed(0)}° gap between ${gs.between[0]} and ${gs.between[1]} — consider adding ${gs.name} (${gs.source})`
+			message: `${gs.gapSize.toFixed(0)}° gap between ${gs.between[0]} and ${gs.between[1]} — consider adding ${gs.name} (${gs.source}): ${gs.rationale}`
+		});
+	}
+
+	// Add coverage/balance findings
+	if (coverageStats.balance !== 'balanced') {
+		findings.push({
+			type: 'hue-gap',
+			severity: 'info',
+			message: `Palette is ${coverageStats.balance.replace('-', ' ')}: ${coverageStats.warmCount} warm, ${coverageStats.coolCount} cool, ${coverageStats.neutralCount} transitional families — consider adding ${coverageStats.balance === 'warm-heavy' ? 'cooler' : 'warmer'} tones`
+		});
+	}
+
+	if (coverageStats.remainingSlots === 0) {
+		findings.push({
+			type: 'hue-gap',
+			severity: 'info',
+			message: `Palette is at capacity (${families.length}/${MAX_PALETTE_SIZE}) — no further additions suggested`
 		});
 	}
 
@@ -363,22 +455,25 @@ export function runPaletteAudit(families: ParsedFamily[]): PaletteAudit {
 	const wheelDots: HueDot[] = [...uploadedDots, ...suggestionDots];
 
 	// Score
-	const score = computeScore(
+	const { score, breakdown: scoreBreakdown } = computeScore(
 		proximityWarnings,
 		chromaAnalysis,
 		shade300Tweaks,
 		gapSuggestions,
-		familyOklch.length
+		familyOklch.length,
+		coverageStats
 	);
 
 	return {
 		score,
+		scoreBreakdown,
 		familyCount: familyOklch.length,
 		chromaAnalysis,
 		proximityWarnings,
 		shade300Tweaks,
 		gapSuggestions,
 		findings,
-		wheelDots
+		wheelDots,
+		coverageStats
 	};
 }

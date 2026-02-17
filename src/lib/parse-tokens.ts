@@ -18,6 +18,8 @@ export interface ParsedFamily {
 	name: string;
 	shades: Record<number, string>; // shade level → hex
 	complete: boolean; // has all 6 core shades
+	/** Where this family originated — 'token' for uploaded JSON, 'workspace' for manually added */
+	source?: 'token' | 'workspace';
 }
 
 export interface ParseResult {

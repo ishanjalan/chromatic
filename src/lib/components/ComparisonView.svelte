@@ -3,26 +3,70 @@
 	import type { ScaleResult } from '$lib/scale';
 	import { hexToRgb, rgbToOklch, apcaContrast, alphaComposite, relativeLuminance } from '$lib/colour';
 	import { SHADE_LEVELS, SHADE_ACTIVE_TEXT } from '$lib/constants';
-	import { findClosestTailwind } from '$lib/tailwind-match';
+	import { findClosestMulti } from '$lib/colour-match';
 	import type { ParsedFamily } from '$lib/parse-tokens';
-	import type { PaletteAudit, ChromaAnalysis, Shade300Tweak } from '$lib/palette-audit';
+	import type { PaletteAudit, ChromaAnalysis, Shade300Tweak, ScoreBreakdown } from '$lib/palette-audit';
+	import GradientStrip from './GradientStrip.svelte';
 
 	let {
 		families,
 		audit = null,
 		onSelectFamily,
 		lockedFamilies = new Set<string>(),
-		onToggleLock
+		onToggleLock,
+		onRemoveFamily,
+		onAcceptProposed
 	}: {
 		families: ParsedFamily[];
 		audit?: PaletteAudit | null;
 		onSelectFamily?: (hex: string, name: string) => void;
 		lockedFamilies?: Set<string>;
 		onToggleLock?: (familyName: string) => void;
+		onRemoveFamily?: (familyName: string) => void;
+		onAcceptProposed?: (familyName: string) => void;
 	} = $props();
 
 	// Track which swatch was just copied (unique key: row-family-shade)
 	let copiedKey = $state('');
+
+	// Filter bar state
+	let activeFilter = $state<'all' | 'changed' | 'failing' | 'adjusted'>('all');
+
+	// Collapsible families
+	let expandedFamilies = $state<Set<string>>(new Set());
+	let allExpanded = $state(false);
+
+	function toggleFamily(name: string) {
+		const next = new Set(expandedFamilies);
+		if (next.has(name)) next.delete(name);
+		else next.add(name);
+		expandedFamilies = next;
+	}
+	function toggleAllExpanded() {
+		if (allExpanded) {
+			expandedFamilies = new Set();
+			allExpanded = false;
+		} else {
+			expandedFamilies = new Set(filteredComparisons.map((c) => c.name));
+			allExpanded = true;
+		}
+	}
+
+	// Score breakdown popover
+	let showBreakdown = $state(false);
+
+	function breakdownLabel(key: keyof ScoreBreakdown): string {
+		const labels: Record<keyof ScoreBreakdown, string> = {
+			proximity: 'Hue collisions',
+			chromaImbalance: 'Saturation imbalance',
+			lightnessTweaks: 'Lightness adjustments',
+			hueGaps: 'Hue coverage gaps',
+			coverageUniformity: 'Distribution evenness',
+			warmCoolBalance: 'Warm/cool balance',
+			familyCountAdj: 'Family count'
+		};
+		return labels[key];
+	}
 
 	function swatchTextColor(hex: string): string {
 		const { r, g, b } = hexToRgb(hex);
@@ -66,6 +110,7 @@
 		chroma: ChromaAnalysis | null;
 		tweak: Shade300Tweak | null;
 		isLocked: boolean;
+		source: 'token' | 'workspace';
 	}
 
 	function computeApcaPrimary(hex: string, shade: number): { lc: number; pass: boolean } {
@@ -106,11 +151,13 @@
 			if (!fam.complete || !fam.shades[300]) continue;
 
 			const isLocked = lockedFamilies.has(fam.name);
+			const isWorkspace = fam.source === 'workspace';
 			const tweakEntry = tweakMap.get(fam.name);
 
-			// When locked: use the ORIGINAL hex so 300 stays exactly as-is.
-			// When unlocked: use the audit's suggested anchor if available.
-			const proposedAnchor = isLocked
+			// When locked or workspace-sourced: use the ORIGINAL hex as-is.
+			// Workspace families were just added — no "original" to improve.
+			// When unlocked token family: use the audit's suggested anchor if available.
+			const proposedAnchor = (isLocked || isWorkspace)
 				? fam.shades[300]
 				: (tweakEntry ? tweakEntry.suggestedHex : fam.shades[300]);
 			const proposedScale = cachedGenerateScale(proposedAnchor, fam.name);
@@ -177,6 +224,7 @@
 				chroma: chromaMap.get(fam.name) ?? null,
 				tweak: tweakMap.get(fam.name) ?? null,
 				isLocked,
+				source: fam.source ?? 'token',
 			});
 		}
 
@@ -187,6 +235,16 @@
 	let totalProposedFails = $derived(comparisons.reduce((a, c) => a + c.proposedApcaFails, 0));
 	let totalShades = $derived(comparisons.length * 6);
 	let unchangedShades = $derived(comparisons.reduce((a, c) => a + c.shades.filter((s) => s.delta255 === 0).length, 0));
+
+	let filteredComparisons = $derived.by(() => {
+		if (activeFilter === 'all') return comparisons;
+		return comparisons.filter((c) => {
+			if (activeFilter === 'changed') return c.maxDelta > 0;
+			if (activeFilter === 'failing') return c.existingApcaFails > 0 || c.proposedApcaFails > 0;
+			if (activeFilter === 'adjusted') return c.tweak !== null && !c.isLocked;
+			return true;
+		});
+	});
 </script>
 
 {#if comparisons.length > 0}
@@ -196,23 +254,65 @@
 		class="flex flex-wrap gap-4 items-center px-5 py-4 rounded-2xl"
 		style="background: var(--surface-2); border: 1px solid var(--border-subtle)"
 	>
-		<!-- Audit score (if available) -->
+		<!-- Audit score with breakdown popover -->
 		{#if audit}
 			{@const sc = audit.score}
 			{@const scColor = sc >= 85 ? '#10b981' : sc >= 65 ? '#f59e0b' : '#ef4444'}
 			{@const scLabel = sc >= 85 ? 'Excellent' : sc >= 65 ? 'Needs Attention' : 'Critical'}
-			<div class="flex items-center gap-2.5">
-				<div
-					class="w-10 h-10 rounded-xl flex items-center justify-center font-display text-[16px] font-700"
+			<div class="relative flex items-center gap-2.5">
+				<button
+					class="w-10 h-10 rounded-xl flex items-center justify-center font-display text-[16px] font-700 cursor-pointer transition-all hover:ring-2 hover:ring-white/10"
 					style="background: {scColor}20; color: {scColor}"
-					title="Palette audit score — composite of chroma balance, hue distribution, and contrast compliance"
+					title="Click to see score breakdown"
+					onclick={() => { showBreakdown = !showBreakdown; }}
 				>
 					{sc}
-				</div>
+				</button>
 				<div>
 					<p class="font-display text-[13px] font-600" style="color: {scColor}">{scLabel}</p>
-					<p class="font-body text-[11px]" style="color: var(--text-tertiary)">Audit Score</p>
+					<button
+						class="font-body text-[11px] cursor-pointer hover:underline"
+						style="color: var(--text-tertiary)"
+						onclick={() => { showBreakdown = !showBreakdown; }}
+					>
+						{showBreakdown ? 'Hide breakdown' : 'See breakdown'}
+					</button>
 				</div>
+				<!-- Score breakdown popover -->
+				{#if showBreakdown && audit}
+					{@const bd = audit.scoreBreakdown}
+					{@const entries = [
+						['proximity', bd.proximity],
+						['chromaImbalance', bd.chromaImbalance],
+						['lightnessTweaks', bd.lightnessTweaks],
+						['hueGaps', bd.hueGaps],
+						['coverageUniformity', bd.coverageUniformity],
+						['warmCoolBalance', bd.warmCoolBalance],
+						['familyCountAdj', bd.familyCountAdj]
+					] as [keyof ScoreBreakdown, number][]}
+					{@const maxDeduction = Math.min(...entries.map(([, v]) => v))}
+					<div
+						class="absolute left-0 top-full mt-2 z-50 w-72 rounded-xl p-4 space-y-1.5 shadow-lg fade-in"
+						style="background: var(--surface-1); border: 1px solid var(--border-medium)"
+					>
+						<p class="font-display text-[12px] font-600 mb-2" style="color: var(--text-secondary)">
+							Score: {sc} / 100
+						</p>
+						{#each entries as [key, value]}
+							<div class="flex items-center justify-between gap-2">
+								<span class="font-body text-[11px]" style="color: var(--text-tertiary)">
+									{breakdownLabel(key)}
+								</span>
+								<span
+									class="font-mono text-[11px] font-600"
+									style="color: {value === 0 ? '#10b981' : value === maxDeduction ? '#ef4444' : '#f59e0b'}"
+								>
+									{value > 0 ? '+' : ''}{value} pts
+								</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 			<div class="w-px h-8" style="background: var(--border-medium)"></div>
 		{/if}
@@ -231,9 +331,9 @@
 		<div class="w-px h-5" style="background: var(--border-medium)"></div>
 		<div
 			class="flex items-baseline gap-2"
-			title="APCA contrast failures — shades that don't meet the minimum Lc 60 readability threshold for their intended text pairing. Left = existing, right = proposed."
+			title="Readability failures — shades that don't meet the minimum APCA Lc 60 threshold for their intended text pairing. Left = existing, right = proposed."
 		>
-			<span class="font-body text-[13px]" style="color: var(--text-secondary)">APCA:</span>
+			<span class="font-body text-[13px]" style="color: var(--text-secondary)">Readability:</span>
 			<span
 				class="font-mono text-[14px] font-600"
 				style="color: {totalExistingFails > 0 ? '#ef4444' : '#10b981'}"
@@ -268,209 +368,344 @@
 		</div>
 	</div>
 
+	<!-- Filter bar -->
+	<div class="flex flex-wrap items-center gap-2">
+		{#each [
+			{ key: 'all', label: 'All' },
+			{ key: 'changed', label: 'Changed only' },
+			{ key: 'failing', label: 'Readability failures' },
+			{ key: 'adjusted', label: 'Adjustments' }
+		] as filter}
+			<button
+				class="text-[11px] font-body font-500 px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+				style="background: {activeFilter === filter.key ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.03)'}; color: {activeFilter === filter.key ? 'var(--text-primary)' : 'var(--text-tertiary)'}; border: 1px solid {activeFilter === filter.key ? 'var(--border-medium)' : 'transparent'}"
+				onclick={() => { activeFilter = filter.key as typeof activeFilter; }}
+			>
+				{filter.label}
+				{#if filter.key === 'failing'}
+					({totalExistingFails + totalProposedFails})
+				{/if}
+			</button>
+		{/each}
+		<div class="flex-1"></div>
+		<button
+			class="text-[11px] font-body font-500 px-2.5 py-1 rounded-md cursor-pointer transition-all hover:opacity-70"
+			style="color: var(--text-tertiary)"
+			onclick={toggleAllExpanded}
+		>
+			{allExpanded ? 'Collapse all' : 'Expand all'}
+		</button>
+	</div>
+
 	<!-- Per-family comparison -->
-	{#each comparisons as comp (comp.name)}
-		{@const twMatch = findClosestTailwind(comp.existing300Hex)}
-		{@const isTwMismatch = twMatch.name.toLowerCase() !== comp.name.toLowerCase()}
-		{@const proposedAnchor = comp.isLocked ? comp.existing300Hex : (comp.tweak ? comp.tweak.suggestedHex : comp.existing300Hex)}
+	{#each filteredComparisons as comp (comp.name)}
+		{@const matches = findClosestMulti(comp.existing300Hex)}
+		{@const proposedAnchor = (comp.isLocked || comp.source === 'workspace') ? comp.existing300Hex : (comp.tweak ? comp.tweak.suggestedHex : comp.existing300Hex)}
 		<div
 			class="rounded-2xl overflow-hidden"
 			style="background: var(--surface-1); border: 1px solid {comp.isLocked ? 'rgba(234,179,8,0.25)' : 'var(--border-subtle)'}"
 		>
-			<!-- Family header -->
-			<div class="flex items-center justify-between px-5 py-3" style="border-bottom: 1px solid var(--border-subtle)">
-				<div class="flex items-center gap-3">
-					<button
+			<!-- Family header (clickable to expand/collapse) -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="flex items-center justify-between px-5 py-3 cursor-pointer transition-colors hover:bg-white/[0.02]"
+				style="border-bottom: 1px solid var(--border-subtle)"
+				onclick={() => toggleFamily(comp.name)}
+			>
+				<div class="flex items-center gap-3 flex-wrap">
+					<svg
+						viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+						class="transition-transform duration-200 shrink-0"
+						style="color: var(--text-ghost); transform: rotate({expandedFamilies.has(comp.name) ? '90' : '0'}deg)"
+					>
+						<path d="M6 4l4 4-4 4" />
+					</svg>
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
 						class="w-5 h-5 rounded-md ring-1 ring-white/10 cursor-pointer transition-all hover:ring-2 hover:ring-white/30 hover:scale-110"
 						style="background-color: {comp.existing300Hex}"
 						title="Load {comp.name} ({comp.existing300Hex}) into the generator"
-						onclick={() => onSelectFamily?.(comp.existing300Hex, comp.name)}
-					></button>
-					<button
-						class="font-display text-[15px] font-600 cursor-pointer transition-colors hover:opacity-70"
+						onclick={(e) => { e.stopPropagation(); onSelectFamily?.(comp.existing300Hex, comp.name); }}
+					></div>
+					<span
+						class="font-display text-[15px] font-600"
 						style="color: var(--text-primary)"
-						title="Load {comp.name} into the generator"
-						onclick={() => onSelectFamily?.(comp.existing300Hex, comp.name)}
-					>{comp.name}</button>
+					>{comp.name}</span>
 					<span class="font-mono text-[12px]" style="color: var(--text-tertiary)">
 						{comp.existing300Hex}
 					</span>
-					<!-- Lock 300 toggle -->
+					{#if comp.source === 'workspace'}
+						<span
+							class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
+							style="background: rgba(139,92,246,0.12); color: rgba(167,139,250,0.9)"
+						>
+							Manually added
+						</span>
+						{#if onRemoveFamily}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span
+								class="text-[10px] font-body font-500 px-1.5 py-0.5 rounded-md cursor-pointer transition-all hover:opacity-80"
+								style="background: rgba(239,68,68,0.08); color: rgba(239,68,68,0.7)"
+								title="Remove {comp.name} from the workspace"
+								onclick={(e) => { e.stopPropagation(); onRemoveFamily(comp.name); }}
+							>✕</span>
+						{/if}
+					{/if}
 					{#if onToggleLock}
-						<button
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
 							class="inline-flex items-center gap-1 text-[10px] font-body font-600 px-2 py-0.5 rounded-md cursor-pointer transition-all hover:opacity-80"
 							style="background: {comp.isLocked ? 'rgba(234,179,8,0.15)' : 'rgba(255,255,255,0.04)'}; color: {comp.isLocked ? 'rgba(234,179,8,0.9)' : 'var(--text-ghost)'}"
-							title="{comp.isLocked ? 'Locked — the 300 shade is preserved as-is. Other shades still use optimised values. Click to unlock.' : 'Click to lock the 300 shade — preserves your exact hex while still optimising other shades.'}"
-							onclick={() => onToggleLock(comp.name)}
+							title="{comp.isLocked ? 'Locked — the 300 shade is preserved as-is. Click to unlock.' : 'Click to lock the 300 shade.'}"
+							onclick={(e) => { e.stopPropagation(); onToggleLock(comp.name); }}
 						>
 							{comp.isLocked ? '🔒' : '🔓'} 300 {comp.isLocked ? 'locked' : 'unlocked'}
-						</button>
-					{/if}
-					{#if isTwMismatch && twMatch.confidence !== 'distant'}
-						<span
-							class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
-							style="background: rgba(249,115,22,0.10); color: rgba(249,115,22,0.85)"
-							title="This is named '{comp.name}' but is closest to Tailwind's '{twMatch.name}' (Δ{twMatch.hueDelta.toFixed(0)}° hue)"
-						>
-							≈ TW {twMatch.name}
-						</span>
-					{:else}
-						<span
-							class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
-							style="background: rgba(255,255,255,0.04); color: var(--text-ghost)"
-							title="Matches Tailwind's '{twMatch.name}' (Δ{twMatch.hueDelta.toFixed(0)}° hue)"
-						>
-							TW {twMatch.name}
 						</span>
 					{/if}
+				{#if !matches.isAchromatic}
+					{#each [
+						{ m: matches.tailwind, label: 'TW', full: 'Tailwind CSS v4' },
+						{ m: matches.spectrum, label: 'SP', full: 'Adobe Spectrum 2' },
+						{ m: matches.radix,    label: 'RX', full: 'Radix Colors' }
+					] as entry}
+						{#if entry.m && entry.m.confidence !== 'distant'}
+							{@const isHueFar = entry.m.hueDelta > 15}
+							<span
+								class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md inline-flex items-center gap-1"
+								style="background: {isHueFar ? 'rgba(249,115,22,0.10)' : 'rgba(255,255,255,0.04)'}; color: {isHueFar ? 'rgba(249,115,22,0.85)' : 'var(--text-ghost)'}"
+								title="Closest {entry.full}: {entry.m.name} (Δ{entry.m.hueDelta.toFixed(0)}° hue){isHueFar ? ' — hue is >15° away' : ''}"
+							>
+								<span class="w-2 h-2 rounded-sm ring-1 ring-white/10" style="background-color: {entry.m.previewHex}"></span>
+								{entry.label} {entry.m.name}
+							</span>
+						{/if}
+					{/each}
+				{/if}
 
-					<!-- Inline chroma badge -->
 					{#if comp.chroma?.flagged}
 						{@const ca = comp.chroma}
 						{@const devPct = Math.abs(ca.deviation * 100).toFixed(0)}
 						<span
 							class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
 							style="background: {ca.deviation > 0 ? 'rgba(249,115,22,0.10)' : 'rgba(56,189,248,0.10)'}; color: {ca.deviation > 0 ? 'rgba(249,115,22,0.85)' : 'rgba(56,189,248,0.85)'}"
-							title="{ca.deviation > 0 ? 'Oversaturated' : 'Undersaturated'} — this family's chroma is {devPct}% {ca.deviation > 0 ? 'above' : 'below'} the palette median. Gamut usage: {(ca.relativeChroma * 100).toFixed(0)}% (median: {(ca.targetRelChroma * 100).toFixed(0)}%)."
+							title="Saturation: {ca.deviation > 0 ? '+' : ''}{devPct}% {ca.deviation > 0 ? 'above' : 'below'} median. This family may appear {ca.deviation > 0 ? 'more vivid' : 'more muted'} than its peers."
 						>
-							{ca.deviation > 0 ? 'Oversaturated' : 'Undersaturated'} ({ca.deviation > 0 ? '+' : '−'}{devPct}%)
+							Saturation: {ca.deviation > 0 ? '+' : '−'}{devPct}%
 						</span>
 					{/if}
 				</div>
-				<div class="flex items-center gap-3">
-					{#if comp.maxDelta === 0}
-						<span class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md" style="background: rgba(16,185,129,0.10); color: #10b981">
-							No changes
-						</span>
+				<div class="flex items-center gap-2 shrink-0">
+					{#if comp.source === 'workspace'}
+						{#if comp.existingApcaFails === 0}
+							<span class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md" style="background: rgba(16,185,129,0.10); color: #10b981">
+								Readable
+							</span>
+						{:else}
+							<span class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md" style="background: rgba(239,68,68,0.10); color: #ef4444">
+								{comp.existingApcaFails} readability {comp.existingApcaFails === 1 ? 'fail' : 'fails'}
+							</span>
+						{/if}
 					{:else}
-						{@const dColor = comp.maxDelta > 40 ? '#ef4444' : comp.maxDelta > 20 ? '#f59e0b' : 'var(--text-tertiary)'}
-						<span
-							class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
-							style="background: {comp.maxDelta > 40 ? 'rgba(239,68,68,0.10)' : comp.maxDelta > 20 ? 'rgba(245,158,11,0.10)' : 'rgba(255,255,255,0.04)'}; color: {dColor}"
-							title="Maximum per-channel colour difference (0–255). Under 10 = minor, 10–20 = noticeable, 20–40 = significant, 40+ = major."
-						>
-							max Δ{comp.maxDelta}
-						</span>
-					{/if}
-					{#if comp.existingApcaFails > 0 && comp.proposedApcaFails === 0}
-						<span
-							class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
-							style="background: rgba(16,185,129,0.10); color: #10b981"
-							title="All APCA contrast failures in this family are resolved by the proposed values"
-						>
-							APCA resolved
-						</span>
-					{/if}
-					{#if comp.tweak && !comp.isLocked}
-						<span
-							class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
-							style="background: rgba(234,179,8,0.10); color: rgba(234,179,8,0.85)"
-							title="300 anchor: {comp.tweak.currentHex} → {comp.tweak.suggestedHex}. {comp.tweak.reasons.join(' ')}"
-						>
-							Anchor adjusted
-						</span>
-					{:else if comp.tweak && comp.isLocked}
-						<span
-							class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
-							style="background: rgba(234,179,8,0.06); color: rgba(234,179,8,0.5)"
-							title="Adjustment available ({comp.tweak.currentHex} → {comp.tweak.suggestedHex}) but 300 is locked. {comp.tweak.reasons.join(' ')}"
-						>
-							Adjustment skipped
-						</span>
+						{#if comp.maxDelta === 0}
+							<span class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md" style="background: rgba(16,185,129,0.10); color: #10b981">
+								No changes
+							</span>
+						{:else}
+							{@const dColor = comp.maxDelta > 40 ? '#ef4444' : comp.maxDelta > 20 ? '#f59e0b' : 'var(--text-tertiary)'}
+							<span
+								class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
+								style="background: {comp.maxDelta > 40 ? 'rgba(239,68,68,0.10)' : comp.maxDelta > 20 ? 'rgba(245,158,11,0.10)' : 'rgba(255,255,255,0.04)'}; color: {dColor}"
+							>
+								max Δ{comp.maxDelta}
+							</span>
+						{/if}
+						{#if comp.existingApcaFails > 0 && comp.proposedApcaFails === 0}
+							<span
+								class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
+								style="background: rgba(16,185,129,0.10); color: #10b981"
+								title="All readability failures in this family are resolved by the proposed values"
+							>
+								Readability resolved
+							</span>
+						{/if}
+						{#if comp.tweak && !comp.isLocked}
+							<span
+								class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
+								style="background: rgba(234,179,8,0.10); color: rgba(234,179,8,0.85)"
+								title="300 anchor: {comp.tweak.currentHex} → {comp.tweak.suggestedHex}. {comp.tweak.reasons.join(' ')}"
+							>
+								Anchor adjusted
+							</span>
+						{:else if comp.tweak && comp.isLocked}
+							<span
+								class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md"
+								style="background: rgba(234,179,8,0.06); color: rgba(234,179,8,0.5)"
+							>
+								Adjustment skipped
+							</span>
+						{/if}
+						{#if onAcceptProposed && comp.tweak && !comp.isLocked && comp.source === 'token'}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span
+								class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md cursor-pointer transition-all hover:opacity-80"
+								style="background: rgba(16,185,129,0.12); color: #10b981"
+								title="Accept the proposed anchor and add this family to the workspace"
+								onclick={(e) => { e.stopPropagation(); onAcceptProposed(comp.name); }}
+							>
+								Accept proposed
+							</span>
+						{/if}
 					{/if}
 				</div>
 			</div>
 
-			<!-- Shade strips -->
+			<!-- Shade strips (collapsible) -->
+			{#if expandedFamilies.has(comp.name)}
 			<div class="px-5 py-4">
-				<!-- Row-oriented grid: label column + 6 shade columns -->
-				<div class="grid gap-x-2 gap-y-1.5" style="grid-template-columns: 72px repeat(6, 1fr)">
-					<!-- Shade number header row -->
-					<div></div>
-					{#each comp.shades as sc (sc.shade)}
-						<span class="block font-mono text-[11px] font-600 text-center" style="color: var(--text-secondary)">{sc.shade}</span>
-					{/each}
+				{#if comp.source === 'workspace'}
+					<!-- Single-row layout for workspace families (no existing vs proposed) -->
+					<div class="grid gap-x-2 gap-y-1.5" style="grid-template-columns: 72px repeat(6, 1fr)">
+						<!-- Shade number header row -->
+						<div></div>
+						{#each comp.shades as sc (sc.shade)}
+							<span class="block font-mono text-[11px] font-600 text-center" style="color: var(--text-secondary)">{sc.shade}</span>
+						{/each}
 
-					<!-- Existing row label + CTA -->
-					<div class="flex flex-col justify-center gap-0.5">
-						<span class="font-body text-[11px] font-500" style="color: var(--text-tertiary)">Existing</span>
-						{#if onSelectFamily}
-							<button
-								class="font-body text-[10px] font-500 cursor-pointer transition-opacity hover:opacity-70 text-left"
-								style="color: var(--text-ghost)"
-								title="Load the original 300 shade ({comp.existing300Hex}) into the generator"
-								onclick={() => onSelectFamily?.(comp.existing300Hex, comp.name)}
-							>Edit →</button>
-						{/if}
-					</div>
-					{#each comp.shades as sc (sc.shade)}
-						{@const eKey = `e-${comp.name}-${sc.shade}`}
-						<button
-							class="relative h-12 rounded-lg ring-1 ring-white/5 flex items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-white/20 active:scale-[0.97]"
-							style="background-color: {sc.existingHex}"
-							title="Click to copy {sc.existingHex} | APCA Lc {sc.existingApcaLc.toFixed(0)}"
-							onclick={() => copyHex(sc.existingHex, eKey)}
-						>
-							<span
-								class="font-mono text-[9px] font-500 transition-opacity"
-								style="color: {swatchTextColor(sc.existingHex)}"
-							>{copiedKey === eKey ? 'Copied!' : sc.existingHex}</span>
-						</button>
-					{/each}
-
-					<!-- Proposed row label + CTA -->
-					<div class="flex flex-col justify-center gap-0.5">
-						<span
-							class="font-body text-[11px] font-500"
-							style="color: var(--text-tertiary)"
-							title="{comp.isLocked ? '300 shade is locked to ' + comp.existing300Hex + ' — other shades are still optimised' : comp.tweak ? 'Generated from the adjusted 300 anchor (' + comp.tweak.suggestedHex + ')' : 'Generated from the existing 300 anchor'}"
-						>{comp.isLocked ? 'Proposed ⁽³⁰⁰ locked⁾' : 'Proposed'}</span>
-						{#if onSelectFamily}
-							<button
-								class="font-body text-[10px] font-500 cursor-pointer transition-opacity hover:opacity-70 text-left"
-								style="color: var(--text-ghost)"
-								title="Load the proposed 300 shade ({proposedAnchor}) into the generator"
-								onclick={() => onSelectFamily?.(proposedAnchor, comp.name)}
-							>Edit →</button>
-						{/if}
-					</div>
-					{#each comp.shades as sc (sc.shade)}
-						{@const pKey = `p-${comp.name}-${sc.shade}`}
-						{@const is300Locked = comp.isLocked && sc.shade === 300}
-						<button
-							class="relative h-12 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-white/20 active:scale-[0.97]"
-							class:ring-2={is300Locked}
-							class:ring-1={!is300Locked}
-							style="background-color: {sc.proposedHex}; {is300Locked ? 'ring-color: rgba(234,179,8,0.5); --tw-ring-color: rgba(234,179,8,0.5)' : '--tw-ring-color: rgba(255,255,255,0.05)'}"
-							title="{is300Locked ? '🔒 Locked — ' : ''}Click to copy {sc.proposedHex} | APCA Lc {sc.proposedApcaLc.toFixed(0)}"
-							onclick={() => copyHex(sc.proposedHex, pKey)}
-						>
-							<span
-								class="font-mono text-[9px] font-500 transition-opacity"
-								style="color: {swatchTextColor(sc.proposedHex)}"
-							>{copiedKey === pKey ? 'Copied!' : sc.proposedHex}</span>
-						</button>
-					{/each}
-
-					<!-- Delta row -->
-					<div></div>
-					{#each comp.shades as sc (sc.shade)}
-						<div class="text-center">
-							{#if sc.delta255 === 0}
-								<span class="block font-mono text-[10px]" style="color: var(--text-ghost)">—</span>
-							{:else}
-								<span
-									class="block font-mono text-[10px] font-500"
-									style="color: {sc.delta255 > 40 ? '#ef4444' : sc.delta255 > 20 ? '#f59e0b' : 'var(--text-tertiary)'}"
-									title="Δ{sc.delta255} — {sc.delta255 < 10 ? 'minor' : sc.delta255 < 20 ? 'noticeable' : sc.delta255 < 40 ? 'significant' : 'major'} difference"
-								>
-									Δ{sc.delta255}
-								</span>
+						<!-- Single scale row -->
+						<div class="flex flex-col justify-center gap-0.5">
+							<span class="font-body text-[11px] font-500" style="color: var(--text-tertiary)">Generated</span>
+							{#if onSelectFamily}
+								<button
+									class="font-body text-[10px] font-500 cursor-pointer transition-opacity hover:opacity-70 text-left"
+									style="color: var(--text-ghost)"
+									title="Load {comp.name} ({comp.existing300Hex}) into the generator"
+									onclick={() => onSelectFamily?.(comp.existing300Hex, comp.name)}
+								>Edit →</button>
 							{/if}
 						</div>
-					{/each}
-				</div>
+						{#each comp.shades as sc (sc.shade)}
+							{@const key = `w-${comp.name}-${sc.shade}`}
+							<button
+								class="relative h-12 rounded-lg ring-1 ring-white/5 flex items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-white/20 active:scale-[0.97]"
+								style="background-color: {sc.existingHex}"
+								title="Click to copy {sc.existingHex} | APCA Lc {sc.existingApcaLc.toFixed(0)}"
+								onclick={() => copyHex(sc.existingHex, key)}
+							>
+								<span
+									class="font-mono text-[9px] font-500 transition-opacity"
+									style="color: {swatchTextColor(sc.existingHex)}"
+								>{copiedKey === key ? 'Copied!' : sc.existingHex}</span>
+							</button>
+						{/each}
+					</div>
+
+					<!-- Single gradient strip -->
+					<div class="mt-3 px-1">
+						<GradientStrip hexes={comp.shades.map((s) => s.existingHex)} height={10} />
+					</div>
+				{:else}
+					<!-- Two-row layout for token families (existing vs proposed) -->
+					<div class="grid gap-x-2 gap-y-1.5" style="grid-template-columns: 72px repeat(6, 1fr)">
+						<!-- Shade number header row -->
+						<div></div>
+						{#each comp.shades as sc (sc.shade)}
+							<span class="block font-mono text-[11px] font-600 text-center" style="color: var(--text-secondary)">{sc.shade}</span>
+						{/each}
+
+						<!-- Existing row label + CTA -->
+						<div class="flex flex-col justify-center gap-0.5">
+							<span class="font-body text-[11px] font-500" style="color: var(--text-tertiary)">Existing</span>
+							{#if onSelectFamily}
+								<button
+									class="font-body text-[10px] font-500 cursor-pointer transition-opacity hover:opacity-70 text-left"
+									style="color: var(--text-ghost)"
+									title="Load the original 300 shade ({comp.existing300Hex}) into the generator"
+									onclick={() => onSelectFamily?.(comp.existing300Hex, comp.name)}
+								>Edit →</button>
+							{/if}
+						</div>
+						{#each comp.shades as sc (sc.shade)}
+							{@const eKey = `e-${comp.name}-${sc.shade}`}
+							<button
+								class="relative h-12 rounded-lg ring-1 ring-white/5 flex items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-white/20 active:scale-[0.97]"
+								style="background-color: {sc.existingHex}"
+								title="Click to copy {sc.existingHex} | APCA Lc {sc.existingApcaLc.toFixed(0)}"
+								onclick={() => copyHex(sc.existingHex, eKey)}
+							>
+								<span
+									class="font-mono text-[9px] font-500 transition-opacity"
+									style="color: {swatchTextColor(sc.existingHex)}"
+								>{copiedKey === eKey ? 'Copied!' : sc.existingHex}</span>
+							</button>
+						{/each}
+
+						<!-- Proposed row label + CTA -->
+						<div class="flex flex-col justify-center gap-0.5">
+							<span
+								class="font-body text-[11px] font-500"
+								style="color: var(--text-tertiary)"
+								title="{comp.isLocked ? '300 shade is locked to ' + comp.existing300Hex + ' — other shades are still optimised' : comp.tweak ? 'Generated from the adjusted 300 anchor (' + comp.tweak.suggestedHex + ')' : 'Generated from the existing 300 anchor'}"
+							>{comp.isLocked ? 'Proposed ⁽³⁰⁰ locked⁾' : 'Proposed'}</span>
+							{#if onSelectFamily}
+								<button
+									class="font-body text-[10px] font-500 cursor-pointer transition-opacity hover:opacity-70 text-left"
+									style="color: var(--text-ghost)"
+									title="Load the proposed 300 shade ({proposedAnchor}) into the generator"
+									onclick={() => onSelectFamily?.(proposedAnchor, comp.name)}
+								>Edit →</button>
+							{/if}
+						</div>
+						{#each comp.shades as sc (sc.shade)}
+							{@const pKey = `p-${comp.name}-${sc.shade}`}
+							{@const is300Locked = comp.isLocked && sc.shade === 300}
+							<button
+								class="relative h-12 rounded-lg flex items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-white/20 active:scale-[0.97]"
+								class:ring-2={is300Locked}
+								class:ring-1={!is300Locked}
+								style="background-color: {sc.proposedHex}; {is300Locked ? 'ring-color: rgba(234,179,8,0.5); --tw-ring-color: rgba(234,179,8,0.5)' : '--tw-ring-color: rgba(255,255,255,0.05)'}"
+								title="{is300Locked ? '🔒 Locked — ' : ''}Click to copy {sc.proposedHex} | APCA Lc {sc.proposedApcaLc.toFixed(0)}"
+								onclick={() => copyHex(sc.proposedHex, pKey)}
+							>
+								<span
+									class="font-mono text-[9px] font-500 transition-opacity"
+									style="color: {swatchTextColor(sc.proposedHex)}"
+								>{copiedKey === pKey ? 'Copied!' : sc.proposedHex}</span>
+							</button>
+						{/each}
+
+						<!-- Delta row -->
+						<div></div>
+						{#each comp.shades as sc (sc.shade)}
+							<div class="text-center">
+								{#if sc.delta255 === 0}
+									<span class="block font-mono text-[10px]" style="color: var(--text-ghost)">—</span>
+								{:else}
+									<span
+										class="block font-mono text-[10px] font-500"
+										style="color: {sc.delta255 > 40 ? '#ef4444' : sc.delta255 > 20 ? '#f59e0b' : 'var(--text-tertiary)'}"
+										title="Δ{sc.delta255} — {sc.delta255 < 10 ? 'minor' : sc.delta255 < 20 ? 'noticeable' : sc.delta255 < 40 ? 'significant' : 'major'} difference"
+									>
+										Δ{sc.delta255}
+									</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+
+					<!-- Gradient strips: existing vs proposed -->
+					<div class="mt-3 flex flex-col gap-1.5 px-1">
+						<GradientStrip hexes={comp.shades.map((s) => s.existingHex)} label="Existing" height={10} />
+						<GradientStrip hexes={comp.shades.map((s) => s.proposedHex)} label="Proposed" height={10} />
+					</div>
+				{/if}
 			</div>
+			{/if}
+			<!-- end collapsible shade strips -->
 
 		</div>
 	{/each}

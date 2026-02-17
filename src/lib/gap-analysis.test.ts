@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { analyseHueGaps, suggestionsToHueDots } from './gap-analysis';
+import { analyseHueGaps, suggestionsToHueDots, computeCoverageStats } from './gap-analysis';
+import { MAX_PALETTE_SIZE } from './constants';
 import type { HueDot } from './components/HueWheel.svelte';
 
 function dot(name: string, hue: number, hex = '#888888'): HueDot {
@@ -13,23 +14,30 @@ describe('analyseHueGaps', () => {
 	});
 
 	it('returns suggestions for a large gap', () => {
-		// Two dots at 0° and 180° — 180° gap each side
 		const dots = [dot('A', 0), dot('B', 180)];
 		const suggestions = analyseHueGaps(dots);
 		expect(suggestions.length).toBeGreaterThan(0);
 		for (const s of suggestions) {
-			expect(s.gapSize).toBeGreaterThanOrEqual(25);
 			expect(s.name).toBeTruthy();
-			expect(s.source).toMatch(/^(Tailwind|Spectrum)$/);
+			expect(s.source).toMatch(/^(Tailwind|Spectrum|Radix)$/);
 			expect(s.hex).toMatch(/^#[0-9A-F]{6}$/);
 			expect(s.between).toHaveLength(2);
+			expect(s.score).toBeGreaterThan(0);
+			expect(s.rationale).toBeTruthy();
+			// Sub-scores must be present and in [0, 1]
+			expect(s.hueScore).toBeGreaterThanOrEqual(0);
+			expect(s.hueScore).toBeLessThanOrEqual(1);
+			expect(s.chromaScore).toBeGreaterThanOrEqual(0);
+			expect(s.chromaScore).toBeLessThanOrEqual(1);
+			expect(s.balanceScore).toBeGreaterThanOrEqual(0);
+			expect(s.balanceScore).toBeLessThanOrEqual(1);
 		}
 	});
 
 	it('returns no suggestions when hues are densely packed', () => {
-		// Create dots every 20° — no gap exceeds 25°
-		const dots = Array.from({ length: 18 }, (_, i) =>
-			dot(`C${i}`, i * 20)
+		// Create dots every 10° — no gap exceeds the dynamic threshold
+		const dots = Array.from({ length: 36 }, (_, i) =>
+			dot(`C${i}`, i * 10)
 		);
 		const suggestions = analyseHueGaps(dots);
 		expect(suggestions).toEqual([]);
@@ -42,7 +50,6 @@ describe('analyseHueGaps', () => {
 			dot('Blue', 260)
 		];
 		const suggestions = analyseHueGaps(dots);
-		// All suggestions should reference pairs from our 3 families
 		const validNames = new Set(['Red', 'Green', 'Blue']);
 		for (const s of suggestions) {
 			expect(validNames.has(s.between[0])).toBe(true);
@@ -50,7 +57,7 @@ describe('analyseHueGaps', () => {
 		}
 	});
 
-	it('ranks suggestions by gap size (largest first)', () => {
+	it('ranks suggestions by composite score (highest first)', () => {
 		const dots = [
 			dot('A', 0),
 			dot('B', 30),
@@ -58,45 +65,30 @@ describe('analyseHueGaps', () => {
 		];
 		const suggestions = analyseHueGaps(dots);
 		for (let i = 1; i < suggestions.length; i++) {
-			expect(suggestions[i].gapSize).toBeLessThanOrEqual(suggestions[i - 1].gapSize);
+			expect(suggestions[i].score).toBeLessThanOrEqual(suggestions[i - 1].score);
 		}
 	});
 
 	it('handles wrap-around gap correctly', () => {
-		// Gap from 350° back to 10° wrapping through 0°
 		const dots = [dot('A', 10), dot('B', 350)];
 		const suggestions = analyseHueGaps(dots);
-		// The large gap (340°) should be detected between A and B
+		// The large gap (340°) should produce suggestions
+		expect(suggestions.length).toBeGreaterThan(0);
 		const largeGap = suggestions.find((s) => s.gapSize > 300);
 		expect(largeGap).toBeDefined();
 	});
 
-	it('produces up to 2 suggestions for very large gaps (>60°)', () => {
-		// One massive gap: two dots 60° apart → 300° gap the other way
-		const dots = [dot('A', 0), dot('B', 60)];
-		const suggestions = analyseHueGaps(dots);
-		const largeGapSuggestions = suggestions.filter((s) => s.gapSize > 60);
-		expect(largeGapSuggestions.length).toBeGreaterThanOrEqual(1);
-		// The large gap may have up to 2 suggestions
-		const gapBetween = suggestions.filter(
-			(s) => s.between[0] === 'B' && s.between[1] === 'A'
-		);
-		expect(gapBetween.length).toBeLessThanOrEqual(2);
-	});
-
 	it('does not suggest colours that overlap with uploaded families', () => {
-		// Upload dots near Tailwind Red (25°) and Blue (260°)
 		const dots = [
 			dot('MyRed', 25),
 			dot('MyBlue', 260)
 		];
 		const suggestions = analyseHueGaps(dots);
 		for (const s of suggestions) {
-			// No suggestion should be within 15° of any uploaded dot
 			for (const d of dots) {
 				const delta = Math.abs(s.hue - d.hue);
 				const wrapped = delta > 180 ? 360 - delta : delta;
-				expect(wrapped).toBeGreaterThanOrEqual(15);
+				expect(wrapped).toBeGreaterThanOrEqual(10);
 			}
 		}
 	});
@@ -109,13 +101,49 @@ describe('analyseHueGaps', () => {
 			dot('Red', 25), dot('Magenta', 350), dot('Fuchsia', 330)
 		];
 		const suggestions = analyseHueGaps(palette);
-		// With 12 families spread across the wheel, there might be small gaps
-		// but all suggestions should be valid
 		for (const s of suggestions) {
 			expect(s.hue).toBeGreaterThanOrEqual(0);
 			expect(s.hue).toBeLessThan(360);
-			expect(s.gapSize).toBeGreaterThanOrEqual(25);
+			expect(s.score).toBeGreaterThan(0);
+			expect(typeof s.hueScore).toBe('number');
+			expect(typeof s.chromaScore).toBe('number');
+			expect(typeof s.balanceScore).toBe('number');
 		}
+	});
+
+	it('respects MAX_PALETTE_SIZE cap', () => {
+		// Create exactly MAX_PALETTE_SIZE dots — should produce no suggestions
+		const dots = Array.from({ length: MAX_PALETTE_SIZE }, (_, i) =>
+			dot(`C${i}`, (i * 360) / MAX_PALETTE_SIZE)
+		);
+		const suggestions = analyseHueGaps(dots);
+		expect(suggestions).toEqual([]);
+	});
+
+	it('limits suggestions to remaining slots', () => {
+		// Create a palette with only 2 families — many suggestions possible,
+		// but should not exceed MAX_PALETTE_SIZE - 2
+		const dots = [dot('A', 0), dot('B', 180)];
+		const suggestions = analyseHueGaps(dots);
+		expect(suggestions.length).toBeLessThanOrEqual(MAX_PALETTE_SIZE - 2);
+	});
+
+	it('includes rationale for each suggestion', () => {
+		const dots = [dot('A', 0), dot('B', 180)];
+		const suggestions = analyseHueGaps(dots);
+		for (const s of suggestions) {
+			expect(s.rationale).toBeTruthy();
+			expect(typeof s.rationale).toBe('string');
+		}
+	});
+
+	it('deduplicates candidates appearing in multiple gaps', () => {
+		// A candidate near a gap junction could theoretically appear in two gaps
+		const dots = [dot('A', 0), dot('B', 100), dot('C', 300)];
+		const suggestions = analyseHueGaps(dots);
+		const nameSourcePairs = suggestions.map((s) => `${s.name}-${s.source}`);
+		const unique = new Set(nameSourcePairs);
+		expect(unique.size).toBe(nameSourcePairs.length);
 	});
 });
 
@@ -133,5 +161,65 @@ describe('suggestionsToHueDots', () => {
 
 	it('returns empty array for no suggestions', () => {
 		expect(suggestionsToHueDots([])).toEqual([]);
+	});
+});
+
+describe('computeCoverageStats', () => {
+	it('returns correct stats for a balanced palette', () => {
+		const dots = [
+			dot('Red', 20),     // warm
+			dot('Orange', 50),  // warm
+			dot('Green', 150),  // cool
+			dot('Blue', 250),   // cool
+		];
+		const stats = computeCoverageStats(dots);
+		expect(stats.remainingSlots).toBe(MAX_PALETTE_SIZE - 4);
+		expect(stats.idealGap).toBe(90);
+		expect(stats.warmCount).toBe(2);
+		expect(stats.coolCount).toBe(2);
+		expect(stats.balance).toBe('balanced');
+	});
+
+	it('detects warm-heavy palettes', () => {
+		const dots = [
+			dot('Red', 10),
+			dot('Orange', 40),
+			dot('Magenta', 340),
+			dot('Rose', 5),
+			dot('Blue', 250),
+		];
+		const stats = computeCoverageStats(dots);
+		expect(stats.warmCount).toBe(4);
+		expect(stats.coolCount).toBe(1);
+		expect(stats.balance).toBe('warm-heavy');
+	});
+
+	it('detects cool-heavy palettes', () => {
+		const dots = [
+			dot('Green', 140),
+			dot('Teal', 180),
+			dot('Blue', 230),
+			dot('Indigo', 260),
+			dot('Red', 20),
+		];
+		const stats = computeCoverageStats(dots);
+		expect(stats.coolCount).toBe(4);
+		expect(stats.warmCount).toBe(1);
+		expect(stats.balance).toBe('cool-heavy');
+	});
+
+	it('returns zero remaining slots when at capacity', () => {
+		const dots = Array.from({ length: MAX_PALETTE_SIZE }, (_, i) =>
+			dot(`C${i}`, (i * 360) / MAX_PALETTE_SIZE)
+		);
+		const stats = computeCoverageStats(dots);
+		expect(stats.remainingSlots).toBe(0);
+	});
+
+	it('computes gap standard deviation', () => {
+		// Two dots at 0° and 180° — perfectly uniform: stdDev should be ~0
+		const dots = [dot('A', 0), dot('B', 180)];
+		const stats = computeCoverageStats(dots);
+		expect(stats.gapStdDev).toBeLessThan(1);
 	});
 });

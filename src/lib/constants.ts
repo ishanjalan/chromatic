@@ -41,6 +41,17 @@ export type ShadeLevel = (typeof SHADE_LEVELS)[number];
 export const ACHROMATIC_THRESHOLD = 0.01;
 
 /**
+ * Maximum number of colour families in a design system palette.
+ *
+ * 24 is a reasonable ceiling — it provides excellent hue coverage
+ * (15° average spacing) without becoming unwieldy for semantic token
+ * mapping. Systems beyond this tend to have redundant, hard-to-name
+ * families. The audit will stop suggesting new colours once this
+ * limit is reached.
+ */
+export const MAX_PALETTE_SIZE = 24;
+
+/**
  * Shade role mapping for light and dark mode.
  * Based on the semantic token structure in the design system.
  */

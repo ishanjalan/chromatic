@@ -63,14 +63,16 @@
 			class="flex items-center gap-1.5 px-4 py-3 font-body text-[13px] font-500 cursor-pointer transition-all duration-200 relative"
 			style="color: {activeTab === 'cvd' ? 'var(--text-primary)' : 'var(--text-tertiary)'}"
 		>
-			CVD Simulation
+			Colour Blindness Preview
 			{#if activeTab === 'cvd'}
 				<div class="absolute bottom-0 left-2 right-2 h-[2px] rounded-full" style="background: var(--text-primary)"></div>
 			{/if}
 		</button>
 		<div class="flex-1"></div>
 		<span class="font-body text-[11px]" style="color: var(--text-ghost)">
-			{#if activeTab === 'tokens'}Light / dark mode semantic roles{:else if activeTab === 'components'}Realistic UI patterns using your palette{:else}Vienot 1999 CVD simulation{/if}
+			{#if activeTab === 'tokens'}Light / dark mode semantic roles{:else if activeTab === 'components'}Realistic UI patterns using your palette{:else}
+				<span title="Simulates how your palette appears to people with colour vision deficiencies (protanopia, deuteranopia, tritanopia)">Colour blindness simulation model</span>
+			{/if}
 		</span>
 	</div>
 
@@ -363,7 +365,7 @@
 			{/each}
 
 		<p class="font-body text-[11px] mt-2" style="color: var(--text-ghost)">
-			Simulated using Viénot 1999 matrices (same algorithm as Chrome DevTools). ~8% of males and ~0.5% of females have some form of CVD.
+			<span title="Uses the Viénot 1999 algorithm, the same model used by Chrome DevTools">Simulated using Viénot 1999 matrices</span> (same as Chrome DevTools). ~8% of males and ~0.5% of females have some form of colour vision deficiency.
 		</p>
 		</div>
 	{/if}

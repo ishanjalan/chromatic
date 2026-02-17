@@ -2,8 +2,9 @@
 	import { onMount } from 'svelte';
 	import { generateScale } from '$lib/scale';
 	import type { ScaleResult } from '$lib/scale';
-	import { isValidHex } from '$lib/colour';
-	import { findClosestTailwind } from '$lib/tailwind-match';
+	import { isValidHex, hexToRgb, rgbToOklch } from '$lib/colour';
+	import { findClosestMulti, findTopMatches } from '$lib/colour-match';
+	import type { MultiSystemMatch, ColourMatch } from '$lib/colour-match';
 	import { parseTokenJson } from '$lib/parse-tokens';
 	import type { ParsedFamily } from '$lib/parse-tokens';
 	import { runPaletteAudit } from '$lib/palette-audit';
@@ -14,11 +15,11 @@
 	import HueWheel from '$lib/components/HueWheel.svelte';
 	import ShadeCard from '$lib/components/ShadeCard.svelte';
 	import InputPanel from '$lib/components/InputPanel.svelte';
-	import WorkspaceStrip from '$lib/components/WorkspaceStrip.svelte';
 	import ComparisonView from '$lib/components/ComparisonView.svelte';
 	import PaletteAuditPanel from '$lib/components/PaletteAudit.svelte';
-	import ScaleComparison from '$lib/components/ScaleComparison.svelte';
 	import ScalePreview from '$lib/components/ScalePreview.svelte';
+	import GradientStrip from '$lib/components/GradientStrip.svelte';
+	import ApcaMatrix from '$lib/components/ApcaMatrix.svelte';
 
 	let hexValue = $state('');
 	let colorName = $state('Custom');
@@ -50,26 +51,6 @@
 		saveLocked300(next);
 	}
 
-	// Scale comparison mode
-	let compareMode = $state(false);
-	let compareSelections = $state<string[]>([]);
-	let compareScaleA = $derived(compareSelections.length >= 1 ? workspace.find((s) => s.name === compareSelections[0]) ?? null : null);
-	let compareScaleB = $derived(compareSelections.length >= 2 ? workspace.find((s) => s.name === compareSelections[1]) ?? null : null);
-
-	function toggleCompareMode() {
-		compareMode = !compareMode;
-		compareSelections = [];
-	}
-
-	function handleCompareSelect(name: string) {
-		if (!compareMode) return;
-		if (compareSelections.includes(name)) {
-			compareSelections = compareSelections.filter((n) => n !== name);
-		} else if (compareSelections.length < 2) {
-			compareSelections = [...compareSelections, name];
-		}
-	}
-
 	let generatedHue = $derived(currentScale?.hue ?? null);
 	let accentColor = $derived(currentScale?.shades[2]?.hex ?? '#3B82F6');
 
@@ -89,12 +70,43 @@
 			setTimeout(() => { shareToast = ''; }, 2000);
 		}
 	}
-	let tailwindMatch = $derived(currentScale ? findClosestTailwind(currentScale.inputHex) : null);
+	let multiMatch = $derived<MultiSystemMatch | null>(currentScale ? findClosestMulti(currentScale.inputHex) : null);
+	let topSuggestions = $derived<ColourMatch[]>(currentScale ? findTopMatches(currentScale.inputHex, 5) : []);
 
-	// Palette audit — runs when families are uploaded (try/catch for malformed data)
+	// Merge workspace-only scales into comparison families for full-palette analysis.
+	// Workspace scales that share a name with an uploaded family are skipped (token version wins).
+	// All families are sorted by Oklch hue so manually added ones slot into the correct position.
+	let allFamilies = $derived.by<ParsedFamily[]>(() => {
+		const uploadedNames = new Set(comparisonFamilies.map((f) => f.name));
+		const tokenFamilies: ParsedFamily[] = comparisonFamilies.map((f) => ({ ...f, source: 'token' as const }));
+		const workspaceOnly: ParsedFamily[] = workspace
+			.filter((s) => !uploadedNames.has(s.name))
+			.map((s) => ({
+				name: s.name,
+				shades: Object.fromEntries(s.shades.map((sh) => [sh.shade, sh.hex])),
+				complete: s.shades.length === 6,
+				source: 'workspace' as const
+			}));
+		const merged = [...tokenFamilies, ...workspaceOnly];
+
+		// Sort by Oklch hue of the 300 shade (or best available shade)
+		function familyHue(fam: ParsedFamily): number {
+			const hex = fam.shades[300] ?? Object.values(fam.shades)[0];
+			if (!hex) return 0;
+			try {
+				const { r, g, b } = hexToRgb(hex);
+				const { H } = rgbToOklch(r, g, b);
+				return H;
+			} catch { return 0; }
+		}
+		merged.sort((a, b) => familyHue(a) - familyHue(b));
+		return merged;
+	});
+
+	// Palette audit — runs when families exist (uploaded OR workspace)
 	let audit = $derived.by<PaletteAudit | null>(() => {
-		if (comparisonFamilies.length === 0) return null;
-		try { return runPaletteAudit(comparisonFamilies); }
+		if (allFamilies.length === 0) return null;
+		try { return runPaletteAudit(allFamilies); }
 		catch (e) { console.error('Palette audit failed:', e); return null; }
 	});
 	let wheelDots = $derived(audit?.wheelDots ?? []);
@@ -169,15 +181,41 @@
 		}
 	}
 
-	function handleEdit(scale: ScaleResult) {
-		colorName = scale.name;
-		if (inputPanel) {
-			inputPanel.setHex(scale.inputHex);
+	function handleRemoveWorkspaceFamily(familyName: string) {
+		workspace = workspace.filter((s) => s.name !== familyName);
+	}
+
+	function handleAddToWorkspaceDirect(hex: string, name: string, source?: string) {
+		// Disambiguate if name collides with uploaded token family or existing workspace entry
+		const uploadedNames = new Set(comparisonFamilies.map((f) => f.name));
+		const workspaceNames = new Set(workspace.map((s) => s.name));
+		let finalName = name;
+		if (uploadedNames.has(name) || workspaceNames.has(name)) {
+			// Append source (e.g. "Cyan (Tailwind)") for clarity
+			const suffix = source ? ` (${source})` : ' (suggested)';
+			finalName = `${name}${suffix}`;
+			// If that also collides, it replaces the same-source entry (intended)
+		}
+		const scale = generateScale(hex, finalName);
+		const existing = workspace.findIndex((s) => s.name === scale.name);
+		if (existing >= 0) {
+			workspace[existing] = scale;
+		} else {
+			workspace = [...workspace, scale];
 		}
 	}
 
-	function handleRemove(scale: ScaleResult) {
-		workspace = workspace.filter((s) => s.name !== scale.name);
+	function handleAcceptProposed(familyName: string) {
+		if (!audit) return;
+		const tweak = audit.shade300Tweaks.find((t) => t.family === familyName);
+		if (!tweak) return;
+		const scale = generateScale(tweak.suggestedHex, familyName);
+		const existing = workspace.findIndex((s) => s.name === scale.name);
+		if (existing >= 0) {
+			workspace[existing] = scale;
+		} else {
+			workspace = [...workspace, scale];
+		}
 	}
 
 	function updateUrl() {
@@ -380,75 +418,227 @@
 
 	<main class="max-w-[1600px] mx-auto px-6 lg:px-10 py-8">
 
-		<!-- Top bar: Input + Hue Wheel + Actions -->
-		<div
-			class="rounded-2xl p-5 mb-8"
-			style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
-		>
-			<div class="flex flex-col md:flex-row gap-6 items-start">
-				<!-- Input + History -->
-				<div class="w-full md:w-[320px] shrink-0 md:border-r md:pr-6" style="border-color: var(--border-subtle)">
-					<InputPanel
-						bind:this={inputPanel}
-						bind:hexValue
-						bind:colorName
-						onChange={handleInputChange}
-					/>
-					{#if canGoBack || canGoForward}
-						<div class="flex items-center gap-1.5 mt-2">
+		{#if !currentScale && allFamilies.length === 0}
+			<!-- Two-lane onboarding: shown when there's no data at all -->
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8 fade-in">
+				<!-- Lane A: Audit existing palette (primary) -->
+				<div
+					class="rounded-2xl p-6 flex flex-col gap-4 relative overflow-hidden"
+					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
+				>
+					<div
+						class="absolute inset-0 pointer-events-none"
+						style="background: radial-gradient(ellipse 80% 60% at 30% 20%, rgba(34,211,238,0.05) 0%, transparent 60%)"
+					></div>
+					<div class="relative">
+						<span class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md inline-block mb-3" style="background: rgba(34,211,238,0.08); color: rgba(34,211,238,0.85)">Recommended</span>
+						<p class="text-[17px] font-display font-700 tracking-tight" style="color: var(--text-primary)">
+							Audit your existing palette
+						</p>
+						<p class="text-[13px] font-body mt-1.5 leading-relaxed" style="color: var(--text-tertiary)">
+							Upload your Figma token JSON to analyse colour health, flag contrast issues, and get expansion suggestions.
+						</p>
+					</div>
+					<div class="relative flex-1">
+						<div
+							class="relative p-4 rounded-xl transition-all duration-200"
+							style="
+								border: 2px dashed {isDragging ? 'var(--text-secondary)' : 'var(--border-medium)'};
+								background: {isDragging ? 'rgba(255,255,255,0.03)' : 'transparent'};
+							"
+							role="region"
+							aria-label="File drop zone"
+							ondragover={(e) => { e.preventDefault(); isDragging = true; }}
+							ondragleave={() => (isDragging = false)}
+							ondrop={handleComparisonDrop}
+						>
+							<p class="font-body text-[13px]" style="color: var(--text-secondary)">
+								Drop <span class="font-mono text-[12px]">Value.tokens.json</span> here, or
+								<label class="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-70" style="color: var(--text-primary)">
+									browse
+									<input type="file" accept=".json" class="sr-only" onchange={handleComparisonFileInput} />
+								</label>
+							</p>
+						</div>
+						<div class="mt-3">
+							<textarea
+								bind:value={comparisonJsonInput}
+								placeholder="Or paste the JSON contents here..."
+								class="w-full h-20 px-3.5 py-2.5 rounded-xl font-mono text-[11px] resize-y transition-all focus-visible:ring-1 focus-visible:ring-white/20"
+								style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-primary); outline: none;"
+							></textarea>
 							<button
-								onclick={historyBack}
-								disabled={!canGoBack}
-								class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
-								style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
-								title="Undo (Cmd/Ctrl+Z)"
+								onclick={handleComparisonParse}
+								class="mt-2 font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer transition-all duration-200 hover:opacity-90"
+								style="background: {accentColor}; color: white"
 							>
-								← Undo
+								Analyse Tokens
 							</button>
-							<button
-								onclick={historyForward}
-								disabled={!canGoForward}
-								class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
-								style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
-								title="Redo (Cmd/Ctrl+Shift+Z)"
-							>
-								Redo →
-							</button>
+						</div>
+					</div>
+				</div>
+
+				<!-- Lane B: Start from scratch (secondary) -->
+				<div
+					class="rounded-2xl p-6 flex flex-col gap-4 relative overflow-hidden"
+					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
+				>
+					<div
+						class="absolute inset-0 pointer-events-none"
+						style="background: radial-gradient(ellipse 80% 60% at 70% 80%, rgba(139,92,246,0.04) 0%, transparent 60%)"
+					></div>
+					<div class="relative">
+						<p class="text-[17px] font-display font-700 tracking-tight" style="color: var(--text-primary)">
+							Start from scratch
+						</p>
+						<p class="text-[13px] font-body mt-1.5 leading-relaxed" style="color: var(--text-tertiary)">
+							Enter a hex colour to generate a perceptually uniform 6-shade scale with contrast compliance built in.
+						</p>
+					</div>
+					<div class="relative flex-1">
+						<InputPanel
+							bind:this={inputPanel}
+							bind:hexValue
+							bind:colorName
+							onChange={handleInputChange}
+						/>
+					</div>
+				</div>
+			</div>
+
+			{#if comparisonErrors.length > 0}
+				<div class="mb-5 space-y-1">
+					{#each comparisonErrors as err}
+						<p class="font-body text-[12px]" style="color: #f59e0b">{err}</p>
+					{/each}
+				</div>
+			{/if}
+		{:else}
+			<!-- Normal mode: Input bar + Hue Wheel -->
+			<div
+				class="rounded-2xl p-5 mb-8"
+				style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
+			>
+				<div class="flex flex-col md:flex-row gap-6 items-start">
+					<!-- Input + History -->
+					<div class="w-full md:w-[320px] shrink-0 md:border-r md:pr-6" style="border-color: var(--border-subtle)">
+						<InputPanel
+							bind:this={inputPanel}
+							bind:hexValue
+							bind:colorName
+							onChange={handleInputChange}
+						/>
+						{#if canGoBack || canGoForward}
+							<div class="flex items-center gap-1.5 mt-2">
+								<button
+									onclick={historyBack}
+									disabled={!canGoBack}
+									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
+									style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
+									title="Undo (Cmd/Ctrl+Z)"
+								>
+									← Undo
+								</button>
+								<button
+									onclick={historyForward}
+									disabled={!canGoForward}
+									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
+									style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
+									title="Redo (Cmd/Ctrl+Shift+Z)"
+								>
+									Redo →
+								</button>
+							</div>
+						{/if}
+
+						<!-- Reference colour suggestions -->
+						{#if topSuggestions.length > 0 && currentScale}
+							<div class="mt-4 pt-3" style="border-top: 1px solid var(--border-subtle)">
+								<p class="text-[10px] font-display font-600 uppercase tracking-[0.10em] mb-2" style="color: var(--text-ghost)">
+									Use a tested reference instead?
+								</p>
+								<div class="flex flex-wrap gap-1.5">
+									{#each topSuggestions as sug}
+										{@const srcLabel = sug.source === 'Tailwind' ? 'TW' : sug.source === 'Spectrum' ? 'SP' : 'RX'}
+										<button
+											class="inline-flex items-center gap-1.5 text-[11px] font-mono font-500 pl-1.5 pr-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 hover:brightness-125 hover:scale-[1.02]"
+											style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
+											title="Use {sug.source} {sug.name} ({sug.previewHex}) — Δ{sug.hueDelta.toFixed(0)}° from your input"
+											onclick={() => {
+												colorName = sug.name;
+												if (inputPanel) inputPanel.setHex(sug.previewHex);
+											}}
+										>
+											<span class="w-3.5 h-3.5 rounded-[4px] ring-1 ring-white/10 shrink-0" style="background-color: {sug.previewHex}"></span>
+											<span style="color: var(--text-ghost)">{srcLabel}</span>
+											{sug.name}
+											<span style="color: var(--text-ghost)">Δ{sug.hueDelta.toFixed(0)}°</span>
+										</button>
+									{/each}
+								</div>
+								<p class="text-[10px] font-body mt-1.5 leading-relaxed" style="color: var(--text-ghost)">
+									Battle-tested colours from Tailwind, Spectrum, and Radix at our anchor lightness.
+								</p>
+							</div>
+						{/if}
+					</div>
+
+					<!-- Hue Wheel — only shown when it has data -->
+					{#if wheelDots.length > 0 || generatedHue !== null}
+						<div class="hidden md:flex flex-1 flex-col items-center gap-2">
+							<HueWheel dots={wheelDots} {generatedHue} />
+							<p class="text-[12px] font-body text-center max-w-[240px]" style="color: var(--text-tertiary)">
+								{#if audit}
+									{audit.familyCount} families{audit.gapSuggestions.length > 0 ? ` · ${audit.gapSuggestions.length} suggestions (dashed)` : ''}
+								{:else}
+									Your generated colour on the hue wheel
+								{/if}
+							</p>
 						</div>
 					{/if}
 				</div>
-
-				<!-- Hue Wheel -->
-				<div class="hidden md:flex flex-1 flex-col items-center gap-2">
-					<HueWheel dots={wheelDots} {generatedHue} />
-					<p class="text-[12px] font-body text-center max-w-[240px]" style="color: var(--text-tertiary)">
-						{#if audit}
-							{audit.familyCount} families{audit.gapSuggestions.length > 0 ? ` · ${audit.gapSuggestions.length} suggestions (dashed)` : ''}
-						{:else}
-							Upload tokens to populate the wheel
-						{/if}
-					</p>
-				</div>
-
-				<!-- Actions -->
-				<div class="w-full md:w-[200px] shrink-0 flex flex-col items-stretch gap-2">
-					{#if currentScale}
-						<button
-							onclick={addToWorkspace}
-							class="w-full text-[14px] font-body font-500 px-4 py-2.5 rounded-xl transition-all duration-200 cursor-pointer"
-							style="background: {accentColor}; color: white;"
-							title="Save this colour family to the workspace"
-						>
-							+ Add to Workspace
-						</button>
-					{:else}
-						<p class="text-[13px] font-body text-center py-4" style="color: var(--text-tertiary)">
-							Enter a hex colour to begin
-						</p>
-					{/if}
-				</div>
 			</div>
-		</div>
+
+		<!-- Workspace strip — compact indicator of workspace families -->
+		{#if workspace.length > 0}
+			<div
+				class="rounded-xl px-4 py-2.5 mb-5 flex items-center gap-3 flex-wrap fade-in"
+				style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
+			>
+				<span class="shrink-0 font-body text-[11px] font-500" style="color: var(--text-tertiary)">
+					{workspace.length} {workspace.length === 1 ? 'family' : 'families'}
+				</span>
+				<div class="flex items-center gap-1.5 flex-wrap">
+					{#each workspace as ws (ws.name)}
+						<button
+							class="w-5 h-5 rounded-full ring-1 ring-white/10 cursor-pointer transition-all hover:ring-2 hover:ring-white/30 hover:scale-110 card-enter"
+							style="background-color: {ws.shades[3]?.hex ?? ws.inputHex}"
+							title="{ws.name} ({ws.inputHex}) — click to load"
+							onclick={() => handleSelectFamily(ws.inputHex, ws.name)}
+						></button>
+					{/each}
+				</div>
+				<div class="flex-1"></div>
+				{#if workspace.length > 0}
+					<button
+						onclick={handleShare}
+						class="font-body text-[10px] font-500 px-2.5 py-1 rounded-md cursor-pointer transition-all hover:opacity-70"
+						style="background: rgba(255,255,255,0.04); color: var(--text-tertiary)"
+						title="Copy a shareable link with your workspace"
+					>
+						{shareToast || 'Share'}
+					</button>
+					<button
+						onclick={() => { workspace = []; }}
+						class="font-body text-[10px] font-500 px-2.5 py-1 rounded-md cursor-pointer transition-all hover:opacity-70"
+						style="background: rgba(239,68,68,0.06); color: rgba(239,68,68,0.6)"
+						title="Remove all families from the workspace"
+					>
+						Clear
+					</button>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Generated Scale -->
 		<section class="mb-8">
@@ -475,24 +665,46 @@
 						<span class="font-mono text-[12px]" style="color: var(--text-tertiary)">
 							{currentScale.name} · {currentScale.isAchromatic ? 'Neutral' : `${currentScale.hue.toFixed(1)}°`} · {currentScale.shades.length} shades
 						</span>
-						{#if tailwindMatch}
-							{@const isMismatch = tailwindMatch.name.toLowerCase() !== currentScale.name.toLowerCase()}
-							<span
-								class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md"
-								style="background: {isMismatch ? 'rgba(249,115,22,0.10)' : 'rgba(255,255,255,0.06)'}; color: {isMismatch ? 'rgba(249,115,22,0.85)' : 'var(--text-tertiary)'}"
-								title="Closest Tailwind CSS v4 colour: {tailwindMatch.name} (Δ{tailwindMatch.hueDelta.toFixed(0)}° hue difference, {tailwindMatch.confidence})"
-							>
-								TW {tailwindMatch.name}{isMismatch && tailwindMatch.confidence !== 'distant' ? ' ⚠' : ''}
-							</span>
-						{/if}
+					{#if multiMatch && !multiMatch.isAchromatic}
+						{#each [
+							{ m: multiMatch.tailwind, label: 'TW', full: 'Tailwind CSS v4' },
+							{ m: multiMatch.spectrum, label: 'SP', full: 'Adobe Spectrum 2' },
+							{ m: multiMatch.radix,    label: 'RX', full: 'Radix Colors' }
+						] as entry}
+							{#if entry.m && entry.m.confidence !== 'distant'}
+								{@const isHueFar = entry.m.hueDelta > 15}
+								<span
+									class="text-[10px] font-mono font-600 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5"
+									style="background: {isHueFar ? 'rgba(249,115,22,0.10)' : 'rgba(255,255,255,0.06)'}; color: {isHueFar ? 'rgba(249,115,22,0.85)' : 'var(--text-tertiary)'}"
+									title="Closest {entry.full} colour: {entry.m.name} (Δ{entry.m.hueDelta.toFixed(0)}° hue)"
+								>
+									<span class="w-2.5 h-2.5 rounded-sm ring-1 ring-white/10" style="background-color: {entry.m.previewHex}"></span>
+									{entry.label} {entry.m.name}
+								</span>
+							{/if}
+						{/each}
+					{/if}
+						<button
+							onclick={addToWorkspace}
+							class="text-[13px] font-body font-500 px-4 py-1.5 rounded-lg transition-all duration-200 cursor-pointer hover:opacity-90"
+							style="background: {accentColor}; color: white;"
+							title="Save this colour family to the workspace"
+						>
+							+ Add to Workspace
+						</button>
 					</div>
 					<!-- Lightness steps -->
+					{@const shades = currentScale.shades}
+					{@const deltas = shades.slice(1).map((s, i) => Math.abs(s.oklch.L - shades[i].oklch.L))}
+					{@const maxDelta = Math.max(...deltas)}
+					{@const minDelta = Math.min(...deltas)}
+					{@const isUniform = maxDelta - minDelta < 0.08}
 					<div
 						class="hidden lg:flex items-center gap-1.5 font-mono text-[12px] mb-4"
 						style="color: var(--text-tertiary)"
-						title="Lightness steps (ΔL) — the change in Oklch lightness between consecutive shades. Even spacing = perceptually uniform scale."
+						title="The change in perceptual lightness between consecutive shades. Even spacing means a smooth, uniform scale."
 					>
-						<span style="color: var(--text-secondary)">ΔL</span>
+						<span style="color: var(--text-secondary)">Lightness steps</span>
 						{#each currentScale.shades as shade, i}
 							{#if i > 0}
 								{@const prev = currentScale.shades[i - 1]}
@@ -503,6 +715,12 @@
 								{/if}
 							{/if}
 						{/each}
+						<span
+							class="text-[10px] font-body font-600 px-2 py-0.5 rounded-md ml-1"
+							style="background: {isUniform ? 'rgba(16,185,129,0.10)' : 'rgba(245,158,11,0.10)'}; color: {isUniform ? '#10b981' : '#f59e0b'}"
+						>
+							{isUniform ? 'Uniform' : 'Uneven'}
+						</span>
 					</div>
 
 					<!-- Card legend -->
@@ -511,7 +729,7 @@
 						style="color: var(--text-tertiary)"
 					>
 						<span class="font-500" style="color: var(--text-secondary)">Card key</span>
-						<span title="APCA (Accessible Perceptual Contrast Algorithm) measures how readable text is on a background. Lc is the lightness contrast value — higher means easier to read."><strong class="font-600" style="color: var(--text-primary)">APCA</strong> Lc = primary contrast metric</span>
+						<span title="APCA (Accessible Perceptual Contrast Algorithm) measures how readable text is on a background. Lc is the lightness contrast value — higher means easier to read."><strong class="font-600" style="color: var(--text-primary)">Readability</strong> (APCA Lc) = primary contrast metric</span>
 						<span style="color: var(--text-ghost)">|</span>
 						<span title="WCAG 2.x contrast ratio is the older standard. We show it for reference, but APCA is the preferred metric for this system."><strong class="font-600" style="color: var(--text-primary)">WCAG 2.x</strong> = informational</span>
 						<span style="color: var(--text-ghost)">|</span>
@@ -527,33 +745,36 @@
 						{/each}
 					</div>
 
+					<!-- Scale gradient strip -->
+					<div class="mt-3">
+						<GradientStrip hexes={currentScale.shades.map((s) => s.hex)} />
+					</div>
+
 					<!-- Lightness normalisation note -->
 					{#if currentScale.shades[3]?.wasLAdjusted}
 						<div
 							class="mt-4 px-4 py-3 rounded-xl text-[13px] font-body"
 							style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); color: var(--text-tertiary)"
 						>
-							<strong style="color: var(--text-secondary)">Lightness normalised:</strong> Your input's L* was {currentScale.shades[3].originalL.toFixed(3)} — the 300 shade is generated at the optimal L* {currentScale.shades[3].oklch.L.toFixed(3)} for APCA contrast compliance. Hue and chroma are preserved from your input.
+							<strong style="color: var(--text-secondary)">Lightness normalised:</strong> Your input's L* was {currentScale.shades[3].originalL.toFixed(3)} — the 300 shade is generated at the optimal L* {currentScale.shades[3].oklch.L.toFixed(3)} for readability compliance. Hue and chroma are preserved from your input.
 						</div>
 					{/if}
 				{/key}
 
-				<!-- Scale preview — token usage + colour vision -->
+				<!-- Scale preview — token usage + colour blindness -->
 				<div class="mt-4">
 					<ScalePreview scale={currentScale} />
 				</div>
 			{:else}
-				<!-- Empty state -->
+				<!-- Empty state — shown when we have families but no scale yet -->
 				<div
-					class="relative flex flex-col items-center justify-center py-24 rounded-2xl gap-5 fade-in overflow-hidden"
+					class="relative flex flex-col items-center justify-center py-16 rounded-2xl gap-4 fade-in overflow-hidden"
 					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
 				>
-					<!-- Atmospheric spectrum glow -->
 					<div
 						class="absolute inset-0 pointer-events-none"
 						style="background: radial-gradient(ellipse 60% 50% at 50% 30%, rgba(139,92,246,0.06) 0%, transparent 60%), radial-gradient(ellipse 50% 50% at 30% 60%, rgba(34,211,238,0.04) 0%, transparent 50%), radial-gradient(ellipse 50% 50% at 70% 60%, rgba(245,158,11,0.04) 0%, transparent 50%)"
 					></div>
-					<!-- Spectrum swatches — brand triad -->
 					<div class="relative flex gap-1.5">
 						{#each [
 							{ l: 0.94, c: 0.04, h: 285 },
@@ -569,13 +790,12 @@
 							></div>
 						{/each}
 					</div>
-					<!-- Brand wordmark -->
-					<div class="relative flex flex-col items-center gap-1.5 mt-2">
-						<p class="text-[18px] font-display font-700 tracking-tight" style="color: var(--text-primary)">
-							Start with a colour
+					<div class="relative flex flex-col items-center gap-1">
+						<p class="text-[16px] font-display font-600" style="color: var(--text-primary)">
+							Enter a hex colour above to generate a scale
 						</p>
-						<p class="text-[13px] font-body max-w-sm text-center leading-relaxed" style="color: var(--text-tertiary)">
-							Enter a hex value above to generate an APCA-compliant 6-shade scale, or upload your Figma design tokens below to audit an existing palette.
+						<p class="text-[13px] font-body" style="color: var(--text-tertiary)">
+							Or click any family in the palette analysis below
 						</p>
 					</div>
 				</div>
@@ -598,11 +818,11 @@
 					Palette Analysis
 				</p>
 				<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
-				{#if comparisonFamilies.length > 0}
-					<p class="font-body text-[12px]" style="color: var(--text-tertiary)">
-						{comparisonFamilies.length} {comparisonFamilies.length === 1 ? 'family' : 'families'} loaded &middot; click a family to generate
-					</p>
-				{/if}
+			{#if allFamilies.length > 0}
+				<p class="font-body text-[12px]" style="color: var(--text-tertiary)">
+					{allFamilies.length} {allFamilies.length === 1 ? 'family' : 'families'}{comparisonFamilies.length > 0 ? ' loaded' : ' in workspace'} &middot; click a family to generate
+				</p>
+			{/if}
 			</div>
 
 			{#if comparisonFamilies.length === 0}
@@ -659,12 +879,12 @@
 					</div>
 				</div>
 			{:else}
-				<!-- Results: comparison view with inline audit data -->
+				<!-- Replace JSON button when tokens are loaded -->
 				<div
 					class="rounded-2xl overflow-hidden mb-5"
 					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
 				>
-					<div class="flex items-center justify-between px-5 py-3.5" style="border-bottom: 1px solid var(--border-subtle)">
+					<div class="flex items-center justify-between px-5 py-3.5">
 						<p class="font-body text-[13px]" style="color: var(--text-secondary)">
 							Click a family swatch or name to load it into the generator
 						</p>
@@ -676,24 +896,43 @@
 							Replace JSON
 						</button>
 					</div>
+				</div>
+			{/if}
+
+			<!-- Comparison view — shows all families (uploaded + workspace), sorted by hue -->
+			{#if allFamilies.length > 0}
+				<div
+					class="rounded-2xl overflow-hidden mb-5"
+					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
+				>
 					<div class="p-5">
 						<ComparisonView
-							families={comparisonFamilies}
+							families={allFamilies}
 							{audit}
 							onSelectFamily={handleSelectFamily}
 							{lockedFamilies}
 							onToggleLock={handleToggleLock}
+							onRemoveFamily={handleRemoveWorkspaceFamily}
+							onAcceptProposed={handleAcceptProposed}
 						/>
 					</div>
 				</div>
+			{/if}
 
-				<!-- Hue collisions + Suggested additions (palette-wide insights) -->
-				{#if audit && (audit.proximityWarnings.length > 0 || audit.gapSuggestions.length > 0)}
-					<PaletteAuditPanel
-						{audit}
-						onSelectFamily={handleSelectFamily}
-					/>
-				{/if}
+			<!-- APCA Compliance Matrix — visible when any families exist (uploaded or workspace) -->
+			{#if allFamilies.length > 0}
+				<div class="mt-4">
+					<ApcaMatrix families={allFamilies} {lockedFamilies} onRemoveFamily={handleRemoveWorkspaceFamily} />
+				</div>
+			{/if}
+
+			<!-- Hue collisions + Suggested additions (palette-wide insights) -->
+			{#if audit && (audit.proximityWarnings.length > 0 || audit.gapSuggestions.length > 0)}
+				<PaletteAuditPanel
+					{audit}
+					onSelectFamily={handleSelectFamily}
+					onAddToWorkspace={handleAddToWorkspaceDirect}
+				/>
 			{/if}
 
 			{#if comparisonErrors.length > 0}
@@ -706,67 +945,8 @@
 		</svelte:boundary>
 		</section>
 
-		<!-- Saved Scales -->
-		{#if workspace.length > 0}
-			<section class="mb-8 fade-in">
-				<div class="flex items-center gap-3 mb-3">
-					<p class="font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
-						Saved Scales
-					</p>
-					<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
-					{#if workspace.length >= 2}
-						<button
-							onclick={toggleCompareMode}
-							class="font-body text-[12px] font-500 px-3 py-1.5 rounded-lg cursor-pointer transition-all duration-200"
-							style="background: {compareMode ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)'}; border: 1px solid {compareMode ? 'rgba(59,130,246,0.3)' : 'var(--border-subtle)'}; color: {compareMode ? 'rgba(59,130,246,0.9)' : 'var(--text-tertiary)'}"
-						>
-							{compareMode ? 'Exit Compare' : 'Compare'}
-						</button>
-					{/if}
-					<p class="font-mono text-[12px]" style="color: var(--text-tertiary)">
-						{#if compareMode}
-							Select 2 scales to compare ({compareSelections.length}/2)
-						{:else}
-							{workspace.length} {workspace.length === 1 ? 'family' : 'families'} · hover to edit or remove
-						{/if}
-					</p>
-				</div>
-
-				<!-- Scale comparison view -->
-				{#if compareScaleA && compareScaleB}
-					<div class="mb-3">
-						<ScaleComparison
-							scaleA={compareScaleA}
-							scaleB={compareScaleB}
-							onClose={toggleCompareMode}
-						/>
-					</div>
-				{/if}
-
-				<div class="space-y-2">
-					{#each workspace as scale (scale.name)}
-						{#if compareMode}
-							<button
-								onclick={() => handleCompareSelect(scale.name)}
-								class="w-full text-left cursor-pointer rounded-xl transition-all duration-200"
-								style="outline: {compareSelections.includes(scale.name) ? '2px solid rgba(59,130,246,0.6)' : 'none'}; outline-offset: 2px;"
-							>
-							<WorkspaceStrip
-								{scale}
-								onEdit={handleEdit}
-								onRemove={handleRemove}
-							/>
-						</button>
-					{:else}
-						<WorkspaceStrip
-							{scale}
-							onEdit={handleEdit}
-							onRemove={handleRemove}
-						/>
-						{/if}
-					{/each}
-				</div>
-			</section>
 		{/if}
+		<!-- end two-lane / normal mode conditional -->
+
 	</main>
 </div>

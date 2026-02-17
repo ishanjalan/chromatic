@@ -47,10 +47,10 @@
 		excellent: 'Exc', good: 'Good', min: 'Min', poor: 'Poor'
 	};
 	const apcaTip: Record<string, string> = {
-		excellent: 'APCA Excellent (Lc 75+) — meets all text size requirements including body copy',
-		good: 'APCA Fluent (Lc 60+) — sufficient for body text and most content',
-		min: 'APCA Sub-fluent (Lc 45+) — suitable for large text and display headings only',
-		poor: 'APCA Below threshold (Lc < 45) — does not meet minimum readability for any text'
+		excellent: 'Readability: Excellent (Lc 75+) — meets all text size requirements including body copy',
+		good: 'Readability: Pass (Lc 60+) — sufficient for body text and most content',
+		min: 'Readability: Marginal (Lc 45+) — suitable for large text and display headings only',
+		poor: 'Readability: Fail (Lc < 45) — does not meet minimum readability for any text'
 	};
 </script>
 
@@ -118,9 +118,9 @@
 							<span class="font-body text-[13px] font-500" style="color: var(--text-primary)">{tl.label}</span>
 						</div>
 						<div class="flex items-center gap-3 pl-4">
-							<!-- APCA: primary metric -->
+							<!-- Readability (APCA): primary metric -->
 							<div class="flex items-center gap-1.5">
-								<span class="font-mono text-[13px] font-500 tabular-nums" style="color: var(--text-secondary)" title="APCA Lightness Contrast value: {fmt(Math.abs(tl.apcaLc), 1)} — the primary accessibility metric for this system">Lc {fmt(Math.abs(tl.apcaLc), 0)}</span>
+								<span class="font-mono text-[13px] font-500 tabular-nums" style="color: var(--text-secondary)" title="APCA Lightness Contrast: {fmt(Math.abs(tl.apcaLc), 1)} — measures how easily text can be read on this background. 60+ = body text readable at all sizes.">Lc {fmt(Math.abs(tl.apcaLc), 0)}</span>
 								<span class="text-[10px] font-600 px-1.5 py-0.5 rounded font-mono whitespace-nowrap" style="{apcaStyle[tl.apcaLevel]}" title="{apcaTip[tl.apcaLevel]}">{apcaLbl[tl.apcaLevel]}</span>
 							</div>
 							<span class="text-[11px]" style="color: var(--text-ghost)">|</span>
