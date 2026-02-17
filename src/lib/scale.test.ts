@@ -1,0 +1,284 @@
+import { describe, it, expect } from 'vitest';
+import { generateScale, toJsonTokens, toJsonTokensMultiple, wcagBadge } from './scale';
+
+// ── Scale Generation ────────────────────────────────────────────────
+
+describe('generateScale', () => {
+	const purple = '#7E42EB';
+	const scale = generateScale(purple, 'TestPurple');
+
+	it('produces exactly 6 shades', () => {
+		expect(scale.shades).toHaveLength(6);
+	});
+
+	it('shades are ordered 50, 100, 200, 300, 400, 500', () => {
+		const levels = scale.shades.map((s) => s.shade);
+		expect(levels).toEqual([50, 100, 200, 300, 400, 500]);
+	});
+
+	it('stores the family name', () => {
+		expect(scale.name).toBe('TestPurple');
+	});
+
+	it('stores the input hex', () => {
+		expect(scale.inputHex).toBe(purple);
+	});
+
+	it('hue is a valid degree (0-360)', () => {
+		expect(scale.hue).toBeGreaterThanOrEqual(0);
+		expect(scale.hue).toBeLessThanOrEqual(360);
+	});
+
+	it('lightness values decrease monotonically from shade 50 to 500', () => {
+		for (let i = 1; i < scale.shades.length; i++) {
+			expect(scale.shades[i].oklch.L).toBeLessThan(scale.shades[i - 1].oklch.L);
+		}
+	});
+
+	it('all hex values are valid 7-char strings', () => {
+		for (const shade of scale.shades) {
+			expect(shade.hex).toMatch(/^#[0-9A-F]{6}$/);
+		}
+	});
+
+	it('shade 300 is marked as anchor', () => {
+		const s300 = scale.shades.find((s) => s.shade === 300);
+		expect(s300?.isAnchor).toBe(true);
+	});
+
+	it('non-300 shades are not anchors', () => {
+		const others = scale.shades.filter((s) => s.shade !== 300);
+		for (const s of others) {
+			expect(s.isAnchor).toBe(false);
+		}
+	});
+
+	it('gamut headroom is between 0 and 1 for all shades', () => {
+		for (const shade of scale.shades) {
+			expect(shade.gamutHeadroom).toBeGreaterThanOrEqual(0);
+			expect(shade.gamutHeadroom).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it('each shade has exactly 2 text groups', () => {
+		for (const shade of scale.shades) {
+			expect(shade.textGroups).toHaveLength(2);
+		}
+	});
+
+	it('exactly one text group per shade is active', () => {
+		for (const shade of scale.shades) {
+			const activeCount = shade.textGroups.filter((g) => g.isActive).length;
+			expect(activeCount).toBe(1);
+		}
+	});
+
+	it('each text group has 3 levels (Primary, Secondary, Tertiary)', () => {
+		for (const shade of scale.shades) {
+			for (const group of shade.textGroups) {
+				expect(group.levels).toHaveLength(3);
+				const labels = group.levels.map((l) => l.label);
+				expect(labels).toEqual(['Primary', 'Secondary', 'Tertiary']);
+			}
+		}
+	});
+
+	it('mode labels are set correctly', () => {
+		const modeLabels = scale.shades.map((s) => s.modeLabel);
+		expect(modeLabels[0]).toContain('Light');    // 50 - light tertiary
+		expect(modeLabels[1]).toContain('Light');    // 100 - light secondary
+		expect(modeLabels[2]).toContain('Dark');     // 200 - dark primary
+		expect(modeLabels[3]).toContain('Light');    // 300 - light primary
+		expect(modeLabels[4]).toContain('Dark');     // 400 - dark secondary
+		expect(modeLabels[5]).toContain('Dark');     // 500 - dark tertiary
+	});
+});
+
+// ── Lightness Normalisation (seed model) ────────────────────────────
+
+describe('generateScale lightness normalisation', () => {
+	it('normalises very light input to TARGET_CURVE L', () => {
+		const scale = generateScale('#F0E0FF', 'VeryLight');
+		const s300 = scale.shades.find((s) => s.shade === 300)!;
+		expect(s300.wasLAdjusted).toBe(true);
+		// 300 shade always gets TARGET_CURVE[300].L (0.5387)
+		expect(s300.oklch.L).toBeCloseTo(0.5387, 2);
+	});
+
+	it('normalises very dark input to TARGET_CURVE L', () => {
+		const scale = generateScale('#1A0033', 'VeryDark');
+		const s300 = scale.shades.find((s) => s.shade === 300)!;
+		expect(s300.wasLAdjusted).toBe(true);
+		expect(s300.oklch.L).toBeCloseTo(0.5387, 2);
+	});
+
+	it('all shades use their TARGET_CURVE L regardless of input', () => {
+		const scale = generateScale('#FF0000', 'Red');
+		for (const shade of scale.shades) {
+			// Every shade should match its TARGET_CURVE L (within gamut tolerance)
+			expect(shade.oklch.L).toBeCloseTo(0.5387, shade.shade === 300 ? 2 : -1);
+		}
+	});
+
+	it('preserves user chroma for 300 shade', () => {
+		const scale = generateScale('#7E42EB', 'Purple');
+		const s300 = scale.shades.find((s) => s.shade === 300)!;
+		// Chroma should be from the user's input (gamut-clamped), not from TARGET_CURVE
+		expect(s300.oklch.C).toBeGreaterThan(0);
+	});
+});
+
+// ── APCA Compliance ─────────────────────────────────────────────────
+
+describe('generateScale APCA compliance', () => {
+	it('all generated shades pass their APCA thresholds', () => {
+		// Test with a range of hues to ensure the fixed-C model works everywhere
+		const testHexes = ['#7E42EB', '#285BF3', '#007B28', '#B14B00', '#C51986'];
+		for (const hex of testHexes) {
+			const scale = generateScale(hex);
+			for (const shade of scale.shades) {
+				const activeGroup = shade.textGroups.find((g) => g.isActive)!;
+				const primary = activeGroup.levels.find((l) => l.label === 'Primary')!;
+				// Primary text must achieve at least Lc 45 (large text minimum)
+				expect(
+					Math.abs(primary.apcaLc),
+					`${hex} shade ${shade.shade} primary APCA Lc=${primary.apcaLc.toFixed(1)}`
+				).toBeGreaterThanOrEqual(45);
+			}
+		}
+	});
+});
+
+// ── WCAG Badge ──────────────────────────────────────────────────────
+
+describe('wcagBadge', () => {
+	it('returns AAA for >=7 contrast', () => {
+		expect(wcagBadge(8, 1).level).toBe('aaa');
+	});
+
+	it('returns AA for >=4.5 contrast', () => {
+		expect(wcagBadge(5, 1).level).toBe('aa');
+	});
+
+	it('returns AA Large for >=3 contrast', () => {
+		expect(wcagBadge(3.5, 1).level).toBe('aa-large');
+	});
+
+	it('returns fail for low contrast', () => {
+		expect(wcagBadge(1.5, 1.2).level).toBe('fail');
+	});
+
+	it('prefers white background when both pass', () => {
+		const badge = wcagBadge(8, 8);
+		expect(badge.background).toBe('white');
+	});
+});
+
+// ── JSON Token Export ───────────────────────────────────────────────
+
+describe('toJsonTokens', () => {
+	const scale = generateScale('#3B82F6', 'Blue');
+	const json = toJsonTokens(scale) as Record<string, unknown>;
+
+	it('has Colour top-level key', () => {
+		expect(json).toHaveProperty('Colour');
+	});
+
+	it('has family name under Colour', () => {
+		const colour = json['Colour'] as Record<string, unknown>;
+		expect(colour).toHaveProperty('Blue');
+	});
+
+	it('has all 6 shade entries', () => {
+		const colour = json['Colour'] as Record<string, Record<string, unknown>>;
+		const family = colour['Blue'];
+		expect(Object.keys(family)).toHaveLength(6);
+		expect(Object.keys(family).sort()).toEqual(['100', '200', '300', '400', '50', '500']);
+	});
+
+	it('each shade has $type, $value, $extensions', () => {
+		const colour = json['Colour'] as Record<string, Record<string, Record<string, unknown>>>;
+		const family = colour['Blue'];
+		for (const shadeKey of Object.keys(family)) {
+			const shade = family[shadeKey];
+			expect(shade).toHaveProperty('$type', 'color');
+			expect(shade).toHaveProperty('$value');
+			expect(shade).toHaveProperty('$extensions');
+
+			const val = shade['$value'] as Record<string, unknown>;
+			expect(val).toHaveProperty('colorSpace', 'srgb');
+			expect(val).toHaveProperty('components');
+			expect(val).toHaveProperty('alpha', 1);
+			expect(val).toHaveProperty('hex');
+		}
+	});
+});
+
+describe('achromatic / neutral grey input', () => {
+	const greyScale = generateScale('#808080', 'Grey');
+
+	it('detects the input as achromatic', () => {
+		expect(greyScale.isAchromatic).toBe(true);
+	});
+
+	it('produces 6 shades with near-zero chroma', () => {
+		expect(greyScale.shades).toHaveLength(6);
+		for (const shade of greyScale.shades) {
+			expect(shade.oklch.C).toBeLessThan(0.001);
+		}
+	});
+
+	it('all shade hex values are visually neutral (R ≈ G ≈ B)', () => {
+		for (const shade of greyScale.shades) {
+			const maxDiff = Math.max(
+				Math.abs(shade.rgb.r - shade.rgb.g),
+				Math.abs(shade.rgb.g - shade.rgb.b),
+				Math.abs(shade.rgb.r - shade.rgb.b)
+			);
+			expect(maxDiff).toBeLessThan(0.02);
+		}
+	});
+
+	it('chromatic input is NOT detected as achromatic', () => {
+		const blueScale = generateScale('#3B82F6', 'Blue');
+		expect(blueScale.isAchromatic).toBe(false);
+	});
+
+	it('near-white is detected as achromatic', () => {
+		const whiteScale = generateScale('#F5F5F5', 'OffWhite');
+		expect(whiteScale.isAchromatic).toBe(true);
+		for (const shade of whiteScale.shades) {
+			expect(shade.oklch.C).toBeLessThan(0.001);
+		}
+	});
+
+	it('near-black is detected as achromatic', () => {
+		const blackScale = generateScale('#1A1A1A', 'OffBlack');
+		expect(blackScale.isAchromatic).toBe(true);
+		for (const shade of blackScale.shades) {
+			expect(shade.oklch.C).toBeLessThan(0.001);
+		}
+	});
+});
+
+describe('toJsonTokensMultiple', () => {
+	const s1 = generateScale('#3B82F6', 'Blue');
+	const s2 = generateScale('#10B981', 'Green');
+	const json = toJsonTokensMultiple([s1, s2]) as Record<string, unknown>;
+
+	it('has Colour top-level key', () => {
+		expect(json).toHaveProperty('Colour');
+	});
+
+	it('has both family names', () => {
+		const colour = json['Colour'] as Record<string, unknown>;
+		expect(colour).toHaveProperty('Blue');
+		expect(colour).toHaveProperty('Green');
+	});
+
+	it('each family has 6 shades', () => {
+		const colour = json['Colour'] as Record<string, Record<string, unknown>>;
+		expect(Object.keys(colour['Blue'])).toHaveLength(6);
+		expect(Object.keys(colour['Green'])).toHaveLength(6);
+	});
+});

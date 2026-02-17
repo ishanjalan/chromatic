@@ -1,0 +1,185 @@
+@import 'tailwindcss';
+
+@theme {
+	--font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+	--font-body: 'Outfit', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	--font-sans: 'Outfit', system-ui, sans-serif;
+}
+
+/* ── Chromatic — Dark Observatory Base ─────────────────── */
+:root {
+	--surface-0: #09090B;
+	--surface-1: #111113;
+	--surface-2: #1A1A1E;
+	--surface-3: #222226;
+	--border-subtle: rgba(255, 255, 255, 0.10);
+	--border-medium: rgba(255, 255, 255, 0.16);
+	--border-strong: rgba(255, 255, 255, 0.24);
+	--text-primary: rgba(255, 255, 255, 0.92);
+	--text-secondary: rgba(255, 255, 255, 0.72);
+	--text-tertiary: rgba(255, 255, 255, 0.50);
+	--text-ghost: rgba(255, 255, 255, 0.34);
+
+	/* Chromatic brand triad — violet · cyan · amber */
+	--brand-violet: #8B5CF6;
+	--brand-cyan: #22D3EE;
+	--brand-amber: #F59E0B;
+	--brand-gradient: linear-gradient(135deg, var(--brand-violet), var(--brand-cyan), var(--brand-amber));
+}
+
+html {
+	background-color: var(--surface-0);
+	color: var(--text-primary);
+}
+
+body {
+	font-family: var(--font-body);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Noise Texture Overlay ─────────────────────────────── */
+.noise-overlay::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 9999;
+	opacity: 0.025;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+	background-repeat: repeat;
+	background-size: 256px 256px;
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────── */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Staggered Card Entrance Animation ─────────────────── */
+@keyframes card-enter {
+	from {
+		opacity: 0;
+		transform: translateY(12px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+.shade-card-enter {
+	animation: card-enter 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Fade In Animation ─────────────────────────────────── */
+@keyframes fade-in {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+	animation: fade-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Glow Pulse for Hue Wheel ──────────────────────────── */
+@keyframes glow-pulse {
+	0%, 100% { opacity: 0.5; }
+	50% { opacity: 0.8; }
+}
+
+.glow-pulse {
+	animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* ── Color Picker Styling ──────────────────────────────── */
+input[type="color"] {
+	-webkit-appearance: none;
+	border: none;
+	padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+	padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch {
+	border: 1px solid var(--border-medium);
+	border-radius: 6px;
+}
+
+/* ── Focus Ring ────────────────────────────────────────── */
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+	outline: 1px solid rgba(255, 255, 255, 0.3) !important;
+	outline-offset: 2px;
+}
+
+/* ── Chromatic Logomark ────────────────────────────────── */
+@keyframes spectrum-rotate {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
+
+.chromatic-mark {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.chromatic-mark-glow {
+	position: absolute;
+	inset: -4px;
+	border-radius: 50%;
+	background: conic-gradient(
+		from 0deg,
+		var(--brand-violet),
+		var(--brand-cyan),
+		var(--brand-amber),
+		var(--brand-violet)
+	);
+	opacity: 0;
+	filter: blur(8px);
+	transition: opacity 0.5s ease;
+	animation: spectrum-rotate 8s linear infinite;
+}
+
+.chromatic-mark:hover .chromatic-mark-glow {
+	opacity: 0.4;
+}
+
+/* ── Brand Accent Line ────────────────────────────────── */
+.chromatic-accent-line {
+	height: 2px;
+	background: linear-gradient(
+		90deg,
+		transparent 0%,
+		var(--brand-violet) 20%,
+		var(--brand-cyan) 50%,
+		var(--brand-amber) 80%,
+		transparent 100%
+	);
+	opacity: 0.7;
+}
+
+/* ── Selection ─────────────────────────────────────────── */
+::selection {
+	background: rgba(139, 92, 246, 0.25);
+}
