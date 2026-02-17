@@ -15,7 +15,8 @@ import {
 	rgbToHex,
 	oklchToRgb,
 	maxChromaAtLH,
-	clampChromaToGamut
+	clampChromaToGamut,
+	hueDelta
 } from './colour';
 import { TARGET_CURVE, ACHROMATIC_THRESHOLD } from './constants';
 import type { ParsedFamily } from './parse-tokens';
@@ -90,11 +91,6 @@ const PROXIMITY_WARNING = 10;   // degrees — genuinely close; Tailwind has pai
 const CHROMA_DEVIATION_THRESHOLD = 0.05; // 5% relative chroma
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-function hueDelta(a: number, b: number): number {
-	const d = Math.abs(a - b) % 360;
-	return d > 180 ? 360 - d : d;
-}
 
 function median(values: number[]): number {
 	if (values.length === 0) return 0;

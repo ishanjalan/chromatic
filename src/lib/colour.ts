@@ -245,6 +245,17 @@ export function alphaComposite(
 	};
 }
 
+// ── Hue Geometry ────────────────────────────────────────────────────
+
+/**
+ * Angular distance between two hue values (0–360), always positive.
+ * Wraps correctly across the 0/360 boundary.
+ */
+export function hueDelta(h1: number, h2: number): number {
+	const d = Math.abs(h1 - h2) % 360;
+	return d > 180 ? 360 - d : d;
+}
+
 // ── Hex validation ──────────────────────────────────────────────────
 
 export function isValidHex(hex: string): boolean {

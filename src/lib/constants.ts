@@ -14,8 +14,9 @@
  * proportionally scale chroma from the 300 anchor. Instead, each shade
  * gets its fixed C target, which is then gamut-clamped per hue.
  *
- * L_300 and C_300 are reference values only; the actual 300 shade uses
- * the user's input hex.
+ * L_300 is the APCA-optimised target used by the generator for all 300
+ * shades. C_300 is a reference value only — the actual 300 shade uses
+ * the user's input chroma (gamut-clamped) to preserve saturation intent.
  */
 export const TARGET_CURVE: Record<number, { L: number; C: number }> = {
 	50:  { L: 0.9417, C: 0.0335 },

@@ -27,8 +27,8 @@ describe('findClosestTailwind', () => {
 	});
 
 	it('identifies an amber-like colour is not Orange', () => {
-		// This is amber-500 (#F59E0B), should match Amber
-		const result = findClosestTailwind('#F59E0B');
+		// This is amber-700 (#B45309) — matches the 700-shade reference hue ~49°
+		const result = findClosestTailwind('#B45309');
 		expect(result.name).toBe('Amber');
 	});
 
@@ -78,10 +78,12 @@ describe('findClosestTailwind', () => {
 	});
 
 	it('differentiates between Orange and Amber', () => {
-		const orange = findClosestTailwind('#D57235');
-		const amber = findClosestTailwind('#F59E0B');
-		// Design system orange is a true warm orange; Figma amber is more golden
-		expect(orange.name).not.toBe(amber.name);
+		// Deep red-orange at ~33° hue — squarely in Orange-700 territory (38.4°)
+		const orange = findClosestTailwind('#C24010');
+		// Golden amber at ~49° hue — squarely in Amber-700 territory (49°)
+		const amber = findClosestTailwind('#B45309');
+		expect(orange.name).toBe('Orange');
+		expect(amber.name).toBe('Amber');
 	});
 
 	it('covers all 17 Tailwind colour families', () => {

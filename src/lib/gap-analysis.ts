@@ -2,8 +2,14 @@
  * Hue-gap analysis — identifies gaps in a palette's hue distribution
  * and suggests colours from Tailwind CSS v4 and Adobe Spectrum 2
  * to fill them.
+ *
+ * Suggestion preview hexes are generated at TARGET_CURVE[300] lightness
+ * and chroma, gamut-clamped, so that the preview swatch matches what the
+ * generator will actually produce when the suggestion is adopted.
  */
 
+import { oklchToRgb, rgbToHex, clampChromaToGamut, hueDelta } from './colour';
+import { TARGET_CURVE } from './constants';
 import { TAILWIND_COLORS } from './tailwind-match';
 import { SPECTRUM_COLORS } from './spectrum-colors';
 import type { HueDot } from './components/HueWheel.svelte';
@@ -29,14 +35,6 @@ export interface GapSuggestion {
 interface HueEntry {
 	name: string;
 	hue: number;
-}
-
-/**
- * Angular distance between two hues (0-360), always positive.
- */
-function hueDelta(a: number, b: number): number {
-	const d = Math.abs(a - b) % 360;
-	return d > 180 ? 360 - d : d;
 }
 
 /**
@@ -89,7 +87,7 @@ function buildReferenceColors(existingHues: number[]): Array<{
 			refs.push({
 				name: tw.name,
 				hue: tw.hue,
-				hex: oklchToHex(tw.lightness, tw.chroma, tw.hue),
+				hex: previewHexForHue(tw.hue),
 				source: 'Tailwind'
 			});
 		}
@@ -101,7 +99,7 @@ function buildReferenceColors(existingHues: number[]): Array<{
 			refs.push({
 				name: sp.name,
 				hue: sp.hue,
-				hex: sp.hex,
+				hex: previewHexForHue(sp.hue),
 				source: 'Spectrum'
 			});
 		}
@@ -111,41 +109,17 @@ function buildReferenceColors(existingHues: number[]): Array<{
 }
 
 /**
- * Rough oklch → hex conversion for preview swatches.
- * Uses CSS oklch() internally — for non-browser contexts, falls back to a simple approximation.
+ * Generate an honest preview hex for a suggestion at a given hue.
+ *
+ * Uses TARGET_CURVE[300] L and C (the values the generator will actually use)
+ * with gamut clamping, so what the user sees in the suggestion matches what
+ * they'll get when they adopt it.
  */
-function oklchToHex(L: number, C: number, H: number): string {
-	// Simple oklch → sRGB approximation via Oklab intermediate
-	const hRad = (H * Math.PI) / 180;
-	const a = C * Math.cos(hRad);
-	const b = C * Math.sin(hRad);
-
-	// Oklab → linear sRGB
-	const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-	const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-	const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-
-	const l3 = l_ * l_ * l_;
-	const m3 = m_ * m_ * m_;
-	const s3 = s_ * s_ * s_;
-
-	const rLin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
-	const gLin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
-	const bLin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
-
-	const toSrgb = (x: number) => {
-		const clamped = Math.max(0, Math.min(1, x));
-		return clamped <= 0.0031308
-			? clamped * 12.92
-			: 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
-	};
-
-	const r = Math.round(toSrgb(rLin) * 255);
-	const g = Math.round(toSrgb(gLin) * 255);
-	const bVal = Math.round(toSrgb(bLin) * 255);
-
-	const clamp = (v: number) => Math.max(0, Math.min(255, v));
-	return `#${clamp(r).toString(16).padStart(2, '0')}${clamp(g).toString(16).padStart(2, '0')}${clamp(bVal).toString(16).padStart(2, '0')}`.toUpperCase();
+function previewHexForHue(hue: number): string {
+	const { L, C } = TARGET_CURVE[300];
+	const clampedC = clampChromaToGamut(L, C, hue);
+	const { r, g, b } = oklchToRgb(L, clampedC, hue);
+	return rgbToHex(r, g, b);
 }
 
 /**

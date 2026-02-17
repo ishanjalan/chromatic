@@ -1,53 +1,51 @@
 /**
  * Tailwind CSS v4 colour palette reference for closest-match detection.
  *
- * Uses the 500 shade's Oklch hue as the canonical hue for each family.
+ * Uses the **700 shade** Oklch values as the canonical reference for each
+ * family. The 700 shade (avg L ~0.515) is the closest functional equivalent
+ * to our design system's 300 anchor (TARGET_CURVE[300].L = 0.5387) — 2.5×
+ * closer than the 600 shade (avg L ~0.598) and wins for 13 of 17 families.
+ * This ensures the most accurate hue matching at the lightness range that
+ * matters for APCA-compliant primary action colours.
+ *
  * Only chromatic colours are included (grays/neutrals excluded).
  *
  * Source: https://tailwindcss.com/docs/colors (Tailwind CSS v4)
  */
 
-import { hexToRgb, rgbToOklch } from './colour';
+import { hexToRgb, rgbToOklch, hueDelta } from './colour';
 import { ACHROMATIC_THRESHOLD } from './constants';
 
 export interface TailwindColor {
 	name: string;
-	/** Oklch hue of the 500 shade */
+	/** Oklch hue of the 700 shade */
 	hue: number;
-	/** Oklch chroma of the 500 shade */
+	/** Oklch chroma of the 700 shade */
 	chroma: number;
-	/** Oklch lightness of the 500 shade */
+	/** Oklch lightness of the 700 shade */
 	lightness: number;
 }
 
-// Extracted from official Tailwind v4 @theme block — oklch(L C H) for the 500 shade
+// Extracted from official Tailwind v4 @theme block — oklch(L C H) for the 700 shade
 export const TAILWIND_COLORS: TailwindColor[] = [
-	{ name: 'Red',     lightness: 0.637, chroma: 0.237, hue: 25.331 },
-	{ name: 'Orange',  lightness: 0.705, chroma: 0.213, hue: 47.604 },
-	{ name: 'Amber',   lightness: 0.769, chroma: 0.188, hue: 70.08 },
-	{ name: 'Yellow',  lightness: 0.795, chroma: 0.184, hue: 86.047 },
-	{ name: 'Lime',    lightness: 0.768, chroma: 0.233, hue: 130.85 },
-	{ name: 'Green',   lightness: 0.723, chroma: 0.219, hue: 149.579 },
-	{ name: 'Emerald', lightness: 0.696, chroma: 0.17,  hue: 162.48 },
-	{ name: 'Teal',    lightness: 0.704, chroma: 0.14,  hue: 182.503 },
-	{ name: 'Cyan',    lightness: 0.715, chroma: 0.143, hue: 215.221 },
-	{ name: 'Sky',     lightness: 0.685, chroma: 0.169, hue: 237.323 },
-	{ name: 'Blue',    lightness: 0.623, chroma: 0.214, hue: 259.815 },
-	{ name: 'Indigo',  lightness: 0.585, chroma: 0.233, hue: 277.117 },
-	{ name: 'Violet',  lightness: 0.606, chroma: 0.25,  hue: 292.717 },
-	{ name: 'Purple',  lightness: 0.627, chroma: 0.265, hue: 303.9 },
-	{ name: 'Fuchsia', lightness: 0.667, chroma: 0.295, hue: 322.15 },
-	{ name: 'Pink',    lightness: 0.656, chroma: 0.241, hue: 354.308 },
-	{ name: 'Rose',    lightness: 0.645, chroma: 0.246, hue: 16.439 },
+	{ name: 'Red',     lightness: 0.5054, chroma: 0.1905, hue: 27.52  },
+	{ name: 'Orange',  lightness: 0.5534, chroma: 0.1739, hue: 38.40  },
+	{ name: 'Amber',   lightness: 0.5553, chroma: 0.1455, hue: 49.00  },
+	{ name: 'Yellow',  lightness: 0.5538, chroma: 0.1207, hue: 66.44  },
+	{ name: 'Lime',    lightness: 0.5322, chroma: 0.1405, hue: 131.59 },
+	{ name: 'Green',   lightness: 0.5273, chroma: 0.1371, hue: 150.07 },
+	{ name: 'Emerald', lightness: 0.5081, chroma: 0.1049, hue: 165.61 },
+	{ name: 'Teal',    lightness: 0.5109, chroma: 0.0861, hue: 186.39 },
+	{ name: 'Cyan',    lightness: 0.5198, chroma: 0.0936, hue: 223.13 },
+	{ name: 'Sky',     lightness: 0.5000, chroma: 0.1193, hue: 242.75 },
+	{ name: 'Blue',    lightness: 0.4882, chroma: 0.2172, hue: 264.38 },
+	{ name: 'Indigo',  lightness: 0.4568, chroma: 0.2146, hue: 277.02 },
+	{ name: 'Violet',  lightness: 0.4907, chroma: 0.2412, hue: 292.58 },
+	{ name: 'Purple',  lightness: 0.4955, chroma: 0.2369, hue: 301.92 },
+	{ name: 'Fuchsia', lightness: 0.5180, chroma: 0.2258, hue: 323.95 },
+	{ name: 'Pink',    lightness: 0.5246, chroma: 0.199,  hue: 3.96   },
+	{ name: 'Rose',    lightness: 0.5143, chroma: 0.1978, hue: 16.93  },
 ];
-
-/**
- * Angular distance between two hue values (0–360), wrapping correctly.
- */
-function hueDelta(h1: number, h2: number): number {
-	const d = Math.abs(h1 - h2) % 360;
-	return d > 180 ? 360 - d : d;
-}
 
 export interface TailwindMatch {
 	/** Closest Tailwind colour name */
