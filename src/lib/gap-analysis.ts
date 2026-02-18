@@ -20,7 +20,7 @@
  */
 
 import { oklchToRgb, rgbToHex, clampChromaToGamut, maxChromaAtLH, hueDelta } from './colour';
-import { TARGET_CURVE, MAX_PALETTE_SIZE } from './constants';
+import { TARGET_CURVE, MAX_PALETTE_SIZE, ANCHOR_REF_CHROMA } from './constants';
 import { TAILWIND_COLORS } from './tailwind-match';
 import { SPECTRUM_COLORS } from './spectrum-colors';
 import { RADIX_COLORS } from './radix-colors';
@@ -148,10 +148,10 @@ function dynamicGapThreshold(familyCount: number): number {
  * maximum the standard TARGET_CURVE[300] chroma achieves at this hue.
  */
 function candidateRelativeChroma(hue: number): number {
-	const { L, C } = TARGET_CURVE[300];
+	const { L } = TARGET_CURVE[300];
 	const maxC = maxChromaAtLH(L, hue);
 	if (maxC <= 0) return 0;
-	const clampedC = clampChromaToGamut(L, C, hue);
+	const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, hue);
 	return clampedC / maxC;
 }
 
@@ -214,8 +214,8 @@ function buildReferenceColors(existingHues: number[]): Array<{
 // ── Preview hex generator ───────────────────────────────────────────
 
 function previewHexForHue(hue: number): string {
-	const { L, C } = TARGET_CURVE[300];
-	const clampedC = clampChromaToGamut(L, C, hue);
+	const { L } = TARGET_CURVE[300];
+	const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, hue);
 	const { r, g, b } = oklchToRgb(L, clampedC, hue);
 	return rgbToHex(r, g, b);
 }
@@ -414,12 +414,12 @@ function scoreCandidate(
 
 function computeMedianRelativeChroma(dots: HueDot[]): number {
 	const relChromas: number[] = [];
-	const { L, C } = TARGET_CURVE[300];
+	const { L } = TARGET_CURVE[300];
 
 	for (const dot of dots) {
 		const maxC = maxChromaAtLH(L, dot.hue);
 		if (maxC <= 0) continue;
-		const clampedC = clampChromaToGamut(L, C, dot.hue);
+		const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, dot.hue);
 		relChromas.push(clampedC / maxC);
 	}
 

@@ -13,6 +13,7 @@ import {
 	contrastRatio,
 	bestTextColor,
 	apcaContrast,
+	solveLForApca,
 	alphaComposite,
 	isValidHex,
 	normalizeHex
@@ -259,6 +260,51 @@ describe('apcaContrast', () => {
 	it('returns negative Lc when text is lighter than background', () => {
 		const lc = apcaContrast(0.9, 0.9, 0.9, 0.1, 0.1, 0.1);
 		expect(lc).toBeLessThan(0);
+	});
+});
+
+// ── APCA L-target solver ────────────────────────────────────────────
+
+describe('solveLForApca', () => {
+	const GREY_750 = { r: 0.1137, g: 0.1137, b: 0.1137 };
+	const GREY_50 = { r: 0.9922, g: 0.9922, b: 0.9922 };
+
+	it('finds the Lc 75 crossing for dark text on light fill', () => {
+		const L = solveLForApca(GREY_750.r, GREY_750.g, GREY_750.b, 75, 'light-fill');
+		expect(L).toBeGreaterThan(0.7);
+		expect(L).toBeLessThan(1.0);
+		// Verify it actually achieves Lc 75 at the solved L
+		const { r, g, b } = oklchToRgb(L, 0, 0);
+		const lc = Math.abs(apcaContrast(GREY_750.r, GREY_750.g, GREY_750.b, r, g, b));
+		expect(lc).toBeCloseTo(75, 0);
+	});
+
+	it('finds the Lc 75 crossing for light text on dark fill', () => {
+		const L = solveLForApca(GREY_50.r, GREY_50.g, GREY_50.b, 75, 'dark-fill');
+		expect(L).toBeGreaterThan(0.3);
+		expect(L).toBeLessThan(0.7);
+		const { r, g, b } = oklchToRgb(L, 0, 0);
+		const lc = Math.abs(apcaContrast(GREY_50.r, GREY_50.g, GREY_50.b, r, g, b));
+		expect(lc).toBeCloseTo(75, 0);
+	});
+
+	it('higher targetLc requires lighter fill for dark text', () => {
+		const L75 = solveLForApca(GREY_750.r, GREY_750.g, GREY_750.b, 75, 'light-fill');
+		const L90 = solveLForApca(GREY_750.r, GREY_750.g, GREY_750.b, 90, 'light-fill');
+		expect(L90).toBeGreaterThan(L75);
+	});
+
+	it('higher targetLc requires darker fill for light text', () => {
+		const L75 = solveLForApca(GREY_50.r, GREY_50.g, GREY_50.b, 75, 'dark-fill');
+		const L90 = solveLForApca(GREY_50.r, GREY_50.g, GREY_50.b, 90, 'dark-fill');
+		expect(L90).toBeLessThan(L75);
+	});
+
+	it('has sub-0.001 precision', () => {
+		const L = solveLForApca(GREY_750.r, GREY_750.g, GREY_750.b, 75, 'light-fill');
+		const { r, g, b } = oklchToRgb(L, 0, 0);
+		const lc = Math.abs(apcaContrast(GREY_750.r, GREY_750.g, GREY_750.b, r, g, b));
+		expect(Math.abs(lc - 75)).toBeLessThan(0.5);
 	});
 });
 

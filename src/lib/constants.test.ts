@@ -6,8 +6,15 @@ import {
 	SHADE_TEXT_SEMANTIC,
 	SHADE_ROLES,
 	TEXT_LEVELS_GREY750,
-	TEXT_LEVELS_GREY50
+	TEXT_LEVELS_GREY50,
+	ANCHOR_REF_CHROMA,
+	HK_COEFF,
+	APCA_TARGET_LC,
+	SHADE_HEADROOM,
+	BASE_RELC,
+	RELC_STEP
 } from './constants';
+import { oklchToRgb, apcaContrast } from './colour';
 
 // ── TARGET_CURVE ────────────────────────────────────────────────────
 
@@ -32,18 +39,95 @@ describe('TARGET_CURVE', () => {
 		}
 	});
 
-	it('all C values are non-negative', () => {
+	it('all relC values are non-negative', () => {
 		for (const level of SHADE_LEVELS) {
-			expect(TARGET_CURVE[level].C).toBeGreaterThanOrEqual(0);
+			expect(TARGET_CURVE[level].relC).toBeGreaterThanOrEqual(0);
 		}
 	});
 
-	it('C peaks around 300 shade (highest chroma at anchor)', () => {
-		const C300 = TARGET_CURVE[300].C;
-		const C50 = TARGET_CURVE[50].C;
-		const C500 = TARGET_CURVE[500].C;
-		expect(C300).toBeGreaterThan(C50);
-		expect(C300).toBeGreaterThan(C500);
+	it('relC peaks around shade 200 (strongest chroma fill)', () => {
+		const relC200 = TARGET_CURVE[200].relC;
+		const relC50 = TARGET_CURVE[50].relC;
+		const relC500 = TARGET_CURVE[500].relC;
+		expect(relC200).toBeGreaterThan(relC50);
+		expect(relC200).toBeGreaterThan(relC500);
+	});
+
+	it('shade 300 relC is 0 (sentinel — user chroma used)', () => {
+		expect(TARGET_CURVE[300].relC).toBe(0);
+	});
+
+	it('ANCHOR_REF_CHROMA is a positive reference chroma', () => {
+		expect(ANCHOR_REF_CHROMA).toBeGreaterThan(0.1);
+		expect(ANCHOR_REF_CHROMA).toBeLessThan(0.3);
+	});
+
+	it('HK_COEFF is a small positive compensation factor', () => {
+		expect(HK_COEFF).toBeGreaterThan(0);
+		expect(HK_COEFF).toBeLessThan(0.1);
+	});
+});
+
+// ── APCA-Derived L targets ──────────────────────────────────────────
+
+describe('APCA-derived L targets', () => {
+	it('light fills (50, 100, 200) all pass Lc >= APCA_TARGET_LC with Grey 750', () => {
+		const grey750 = TEXT_LEVELS_GREY750[0];
+		for (const shade of [50, 100, 200] as const) {
+			const L = TARGET_CURVE[shade].L;
+			const { r, g, b } = oklchToRgb(L, 0, 0);
+			const lc = Math.abs(apcaContrast(grey750.r, grey750.g, grey750.b, r, g, b));
+			expect(lc, `Shade ${shade} should pass Lc ${APCA_TARGET_LC}`).toBeGreaterThanOrEqual(APCA_TARGET_LC);
+		}
+	});
+
+	it('dark fills (300, 400, 500) all pass Lc >= APCA_TARGET_LC with Grey 50', () => {
+		const grey50 = TEXT_LEVELS_GREY50[0];
+		for (const shade of [300, 400, 500] as const) {
+			const L = TARGET_CURVE[shade].L;
+			const { r, g, b } = oklchToRgb(L, 0, 0);
+			const lc = Math.abs(apcaContrast(grey50.r, grey50.g, grey50.b, r, g, b));
+			expect(lc, `Shade ${shade} should pass Lc ${APCA_TARGET_LC}`).toBeGreaterThanOrEqual(APCA_TARGET_LC);
+		}
+	});
+
+	it('headroom is positive for all shades', () => {
+		for (const shade of SHADE_LEVELS) {
+			expect(SHADE_HEADROOM[shade]).toBeGreaterThan(0);
+		}
+	});
+
+	it('derived L values land close to historically validated values', () => {
+		const expected: Record<number, number> = {
+			50: 0.94, 100: 0.91, 200: 0.87,
+			300: 0.54, 400: 0.36, 500: 0.28,
+		};
+		for (const shade of SHADE_LEVELS) {
+			expect(TARGET_CURVE[shade].L).toBeCloseTo(expected[shade], 1);
+		}
+	});
+});
+
+// ── Equal-step relC ─────────────────────────────────────────────────
+
+describe('equal-step relC', () => {
+	it('tertiary shades (50, 500) have relC = BASE_RELC', () => {
+		expect(TARGET_CURVE[50].relC).toBeCloseTo(BASE_RELC, 4);
+		expect(TARGET_CURVE[500].relC).toBeCloseTo(BASE_RELC, 4);
+	});
+
+	it('secondary shades (100, 400) have relC = BASE_RELC + RELC_STEP', () => {
+		expect(TARGET_CURVE[100].relC).toBeCloseTo(BASE_RELC + RELC_STEP, 4);
+		expect(TARGET_CURVE[400].relC).toBeCloseTo(BASE_RELC + RELC_STEP, 4);
+	});
+
+	it('primary shade (200) has relC = BASE_RELC + 2 * RELC_STEP', () => {
+		expect(TARGET_CURVE[200].relC).toBeCloseTo(BASE_RELC + 2 * RELC_STEP, 4);
+	});
+
+	it('light/dark role mirrors have identical relC', () => {
+		expect(TARGET_CURVE[50].relC).toBe(TARGET_CURVE[500].relC);
+		expect(TARGET_CURVE[100].relC).toBe(TARGET_CURVE[400].relC);
 	});
 });
 

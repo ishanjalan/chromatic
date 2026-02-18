@@ -20,7 +20,8 @@ import {
 	TEXT_LEVELS_GREY50,
 	SHADE_ACTIVE_TEXT,
 	SHADE_TEXT_SEMANTIC,
-	HUE_SHIFT_200
+	HUE_SHIFT_200,
+	HK_COEFF
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
 
@@ -129,14 +130,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 	const isAchromatic = C_in < ACHROMATIC_THRESHOLD;
 
 	const shades = SHADE_LEVELS.map((shade) => {
-		const { L: tL, C: tC } = TARGET_CURVE[shade];
-
-		// All shades use fixed APCA-optimised L targets from TARGET_CURVE.
-		// For chroma: shade 300 preserves the user's input C (their
-		// saturation intent), all others use the data-driven C target.
-		// Both are gamut-clamped per hue.  Achromatic inputs get C=0.
-		const targetL = tL;
-		const targetC = isAchromatic ? 0 : (shade === 300 ? C_in : tC);
+		const { L: tL, relC } = TARGET_CURVE[shade];
 
 		// Shade 200 gets a slight hue rotation to separate it from 100
 		// (Bezold-Brücke compensation). Wrap into 0-360 range.
@@ -144,8 +138,28 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 			? ((H + HUE_SHIFT_200) % 360 + 360) % 360
 			: H;
 
-		const finalC = clampChromaToGamut(targetL, targetC, shadeH);
+		// Chroma: shade 300 preserves user's input C (saturation intent).
+		// All others use relative chroma × gamut max at this (L, H).
+		// Achromatic inputs force C = 0 for a pure grey ramp.
+		let targetC: number;
+		if (isAchromatic) {
+			targetC = 0;
+		} else if (shade === 300) {
+			targetC = C_in;
+		} else {
+			targetC = relC * maxChromaAtLH(tL, shadeH);
+		}
+
+		let finalC = clampChromaToGamut(tL, targetC, shadeH);
 		const wasGamutReduced = Math.abs(targetC - finalC) > 0.001;
+
+		// Helmholtz-Kohlrausch compensation: reduce effective lightness
+		// proportionally to chroma so saturated shades don't appear
+		// brighter than their achromatic equivalent.
+		const targetL = isAchromatic ? tL : tL - HK_COEFF * finalC;
+
+		// Re-clamp chroma at the H-K adjusted lightness (safety net)
+		finalC = clampChromaToGamut(targetL, finalC, shadeH);
 
 		const { r, g, b } = oklchToRgb(targetL, finalC, shadeH);
 		const hex = rgbToHex(r, g, b);

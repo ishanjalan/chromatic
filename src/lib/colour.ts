@@ -227,6 +227,53 @@ export function apcaContrast(
 	}
 }
 
+// ── APCA L-target solver ────────────────────────────────────────────
+
+/**
+ * Binary-search for the Oklch L where an achromatic fill (C=0) paired with
+ * a given text colour hits exactly |Lc| = targetLc under APCA.
+ *
+ * Using C=0 gives the worst-case (lowest contrast) scenario for any hue,
+ * because H-K compensation only makes chromatic fills darker (higher contrast).
+ *
+ * @param direction
+ *   - `'light-fill'`: searches L from 1.0 downward — for light shades with dark text
+ *   - `'dark-fill'`:  searches L from 0.0 upward — for dark shades with light text
+ * @returns The Oklch L at the APCA |Lc| = targetLc crossing (±0.0001 precision)
+ */
+export function solveLForApca(
+	textR: number, textG: number, textB: number,
+	targetLc: number,
+	direction: 'light-fill' | 'dark-fill'
+): number {
+	let lo: number, hi: number;
+	if (direction === 'light-fill') {
+		lo = 0.3;
+		hi = 1.0;
+	} else {
+		lo = 0.0;
+		hi = 0.7;
+	}
+
+	for (let i = 0; i < 64; i++) {
+		const mid = (lo + hi) / 2;
+		const { r, g, b } = oklchToRgb(mid, 0, 0);
+		const lc = Math.abs(apcaContrast(textR, textG, textB, r, g, b));
+
+		if (direction === 'light-fill') {
+			// Higher L → higher contrast for dark text on light bg.
+			// If contrast is too low, move L up; if sufficient, move L down.
+			if (lc >= targetLc) hi = mid; else lo = mid;
+		} else {
+			// Lower L → higher contrast for light text on dark bg.
+			// If contrast is too low, move L down; if sufficient, move L up.
+			if (lc >= targetLc) lo = mid; else hi = mid;
+		}
+	}
+
+	return direction === 'light-fill' ? hi : lo;
+}
+
 // ── Alpha Compositing ───────────────────────────────────────────────
 
 /**

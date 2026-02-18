@@ -97,26 +97,28 @@ describe('generateScale', () => {
 // ── Lightness Normalisation (seed model) ────────────────────────────
 
 describe('generateScale lightness normalisation', () => {
-	it('normalises very light input to TARGET_CURVE L', () => {
+	it('normalises very light input to TARGET_CURVE L (with H-K)', () => {
 		const scale = generateScale('#F0E0FF', 'VeryLight');
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
-		// 300 shade always gets TARGET_CURVE[300].L (0.5387)
-		expect(s300.oklch.L).toBeCloseTo(0.5387, 2);
+		// L is TARGET_CURVE[300].L minus small H-K chroma compensation
+		expect(s300.oklch.L).toBeGreaterThan(0.52);
+		expect(s300.oklch.L).toBeLessThan(0.54);
 	});
 
-	it('normalises very dark input to TARGET_CURVE L', () => {
+	it('normalises very dark input to TARGET_CURVE L (with H-K)', () => {
 		const scale = generateScale('#1A0033', 'VeryDark');
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
-		expect(s300.oklch.L).toBeCloseTo(0.5387, 2);
+		expect(s300.oklch.L).toBeGreaterThan(0.52);
+		expect(s300.oklch.L).toBeLessThan(0.54);
 	});
 
-	it('all shades use their TARGET_CURVE L regardless of input', () => {
+	it('all shades use approximate TARGET_CURVE L regardless of input', () => {
 		const scale = generateScale('#FF0000', 'Red');
 		for (const shade of scale.shades) {
-			// Every shade should match its TARGET_CURVE L (within gamut tolerance)
-			expect(shade.oklch.L).toBeCloseTo(0.5387, shade.shade === 300 ? 2 : -1);
+			expect(shade.oklch.L).toBeGreaterThan(0.1);
+			expect(shade.oklch.L).toBeLessThan(0.96);
 		}
 	});
 

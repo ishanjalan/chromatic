@@ -1,37 +1,120 @@
+import { solveLForApca } from './colour';
+
+// ── APCA-Derived Lightness Targets ──────────────────────────────────
+//
+// L values are derived programmatically, not hand-tuned. The process:
+//   1. solveLForApca finds the exact Oklch L where the designated text
+//      colour (Grey 750 or Grey 50) achieves |Lc| = APCA_TARGET_LC
+//      against an achromatic fill. This is the "contrast floor."
+//   2. SHADE_HEADROOM adds aesthetic breathing room above that floor.
+//
+// Changing the text colours, Lc target, or headroom automatically
+// recalculates all L values — no manual recalibration needed.
+
+/** Minimum APCA |Lc| for primary text on any shade. */
+export const APCA_TARGET_LC = 75;
+
 /**
- * TARGET_CURVE — Oklch L and C targets for each shade level.
+ * Aesthetic headroom above the APCA contrast floor.
  *
- * L values: APCA-optimised so every shade passes its designated text
- * contrast requirements (Grey 750 for light fills, Grey 50 for dark fills).
- *   - Shade 200 L raised 0.7258 → 0.79 → 0.87 to achieve "Excellent"
- *     (Lc ≥ 75) for Grey 750 Primary text across all hue families.
- *     Worst case at 0.87: Fuchsia/Pink Lc ≈ 77. The 100↔200 L gap
- *     narrows to 0.044 but chroma difference keeps them visually distinct.
- *   - Shade 200 also receives a small hue rotation (HUE_SHIFT_200 = -4°)
- *     to increase perceptual separation from shade 100 at similar L.
- *     Based on the Bezold-Brücke effect — perceived hue shifts with
- *     brightness, so a deliberate counter-rotation keeps each shade
- *     feeling distinct. Skipped for achromatic inputs.
- *   - All other L values validated against APCA and remain unchanged.
+ * For light fills: L = lightFloor + headroom  (lighter = more contrast)
+ * For dark fills:  L = darkFloor - headroom   (darker = more contrast)
  *
- * C values: derived from the mean chroma of gamut-unconstrained families
- * in the existing palette (i.e. families where actual C < 90% of
- * maxChromaAtLH). These are fixed targets — the generator does NOT
- * proportionally scale chroma from the 300 anchor. Instead, each shade
- * gets its fixed C target, which is then gamut-clamped per hue.
+ * These are the ONLY hand-tuned numbers in the curve. Their meaning is
+ * self-documenting: "how far above the minimum acceptable contrast does
+ * this shade sit?"
  *
- * L_300 is the APCA-optimised target used by the generator for all 300
- * shades. C_300 is a reference value only — the actual 300 shade uses
- * the user's input chroma (gamut-clamped) to preserve saturation intent.
+ * Larger headroom → more contrast, less colour identity.
+ * Smaller headroom → tighter to the floor, more vivid.
  */
-export const TARGET_CURVE: Record<number, { L: number; C: number }> = {
-	50:  { L: 0.9417, C: 0.0335 },
-	100: { L: 0.9138, C: 0.0842 },
-	200: { L: 0.8700, C: 0.1238 },
-	300: { L: 0.5387, C: 0.1729 },
-	400: { L: 0.3550, C: 0.0999 },
-	500: { L: 0.3276, C: 0.0548 },
+export const SHADE_HEADROOM: Record<number, number> = {
+	50:  0.092,   // tertiary: generous — ultra-light background tint
+	100: 0.064,   // secondary: moderate — hover/supporting fill
+	200: 0.021,   // primary (dark mode): tight — max colour identity
+	300: 0.033,   // anchor: slight push below floor for headroom
+	400: 0.216,   // secondary (dark): deep enough to separate from 300
+	500: 0.291,   // tertiary (dark): very deep — background anchor
 };
+
+// ── Derive L targets from APCA floor + headroom ────────────────────
+
+const GREY_750_RGB = { r: 0.1137, g: 0.1137, b: 0.1137 };
+const GREY_50_RGB  = { r: 0.9922, g: 0.9922, b: 0.9922 };
+
+const lightFloor = solveLForApca(
+	GREY_750_RGB.r, GREY_750_RGB.g, GREY_750_RGB.b,
+	APCA_TARGET_LC, 'light-fill'
+);
+const darkFloor = solveLForApca(
+	GREY_50_RGB.r, GREY_50_RGB.g, GREY_50_RGB.b,
+	APCA_TARGET_LC, 'dark-fill'
+);
+
+// ── Equal-Step Relative Chroma ─────────────────────────────────────
+//
+// relC = BASE_RELC + rank × RELC_STEP
+//   rank 0 = Tertiary  (receding background)
+//   rank 1 = Secondary (hover/supporting)
+//   rank 2 = Primary   (hero fill)
+//
+// Ensures equal perceptual jumps between role tiers.
+
+export const BASE_RELC = 0.30;
+export const RELC_STEP = 0.15;
+
+const SHADE_RELC_RANK: Record<number, number> = {
+	50: 0, 100: 1, 200: 2,
+	300: -1,  // sentinel — user's input chroma used
+	400: 1, 500: 0,
+};
+
+function shadeRelC(shade: number): number {
+	const rank = SHADE_RELC_RANK[shade];
+	if (rank < 0) return 0;
+	return BASE_RELC + rank * RELC_STEP;
+}
+
+/**
+ * TARGET_CURVE — APCA-derived Oklch L and equal-step relative chroma.
+ *
+ * ## Lightness (L)
+ * Derived from: floor(APCA_TARGET_LC, textColour) ± SHADE_HEADROOM.
+ * Light fills (50, 100, 200): L = lightFloor + headroom
+ * Dark fills (300, 400, 500): L = darkFloor - headroom
+ *
+ * ## Chroma (relC)
+ * Equal-step progression: relC = BASE_RELC + rank × RELC_STEP.
+ * Shade 300 uses relC = 0 as a sentinel — the user's input chroma is
+ * preserved by scale.ts.
+ *
+ * ## H-K Compensation
+ * Applied in scale.ts: L_eff = L - HK_COEFF × actualC, compensating
+ * for the Helmholtz-Kohlrausch effect.
+ */
+export const TARGET_CURVE: Record<number, { L: number; relC: number }> = {
+	50:  { L: lightFloor + SHADE_HEADROOM[50],  relC: shadeRelC(50) },
+	100: { L: lightFloor + SHADE_HEADROOM[100], relC: shadeRelC(100) },
+	200: { L: lightFloor + SHADE_HEADROOM[200], relC: shadeRelC(200) },
+	300: { L: darkFloor  - SHADE_HEADROOM[300], relC: shadeRelC(300) },
+	400: { L: darkFloor  - SHADE_HEADROOM[400], relC: shadeRelC(400) },
+	500: { L: darkFloor  - SHADE_HEADROOM[500], relC: shadeRelC(500) },
+};
+
+/**
+ * Reference absolute chroma for the 300 anchor shade.
+ *
+ * Used by gap-analysis and colour-match modules to generate preview hexes.
+ * Derived from the mean of gamut-unconstrained families in the original
+ * design system audit.
+ */
+export const ANCHOR_REF_CHROMA = 0.1729;
+
+/**
+ * Helmholtz-Kohlrausch lightness compensation coefficient.
+ *     L_effective = L_target - HK_COEFF × actualC
+ * Calibrated so the maximum L reduction is ~0.007 (at C ≈ 0.17).
+ */
+export const HK_COEFF = 0.04;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 
@@ -94,19 +177,16 @@ export interface TextLevel {
 	alpha: number;
 }
 
-const GREY_750 = { r: 0.1137, g: 0.1137, b: 0.1137 }; // #1D1D1D
-const GREY_50  = { r: 0.9922, g: 0.9922, b: 0.9922 }; // #FDFDFD
-
 export const TEXT_LEVELS_GREY750: TextLevel[] = [
-	{ label: 'Primary',   ...GREY_750, alpha: 1.00 },
-	{ label: 'Secondary', ...GREY_750, alpha: 0.69 },
-	{ label: 'Tertiary',  ...GREY_750, alpha: 0.62 },
+	{ label: 'Primary',   ...GREY_750_RGB, alpha: 1.00 },
+	{ label: 'Secondary', ...GREY_750_RGB, alpha: 0.69 },
+	{ label: 'Tertiary',  ...GREY_750_RGB, alpha: 0.62 },
 ];
 
 export const TEXT_LEVELS_GREY50: TextLevel[] = [
-	{ label: 'Primary',   ...GREY_50, alpha: 1.00 },
-	{ label: 'Secondary', ...GREY_50, alpha: 0.72 },
-	{ label: 'Tertiary',  ...GREY_50, alpha: 0.64 },
+	{ label: 'Primary',   ...GREY_50_RGB, alpha: 1.00 },
+	{ label: 'Secondary', ...GREY_50_RGB, alpha: 0.72 },
+	{ label: 'Tertiary',  ...GREY_50_RGB, alpha: 0.64 },
 ];
 
 /**
