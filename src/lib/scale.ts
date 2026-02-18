@@ -20,7 +20,6 @@ import {
 	TEXT_LEVELS_GREY50,
 	SHADE_ACTIVE_TEXT,
 	SHADE_TEXT_SEMANTIC,
-	HUE_SHIFT_200,
 	HK_COEFF
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
@@ -132,40 +131,31 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 	const shades = SHADE_LEVELS.map((shade) => {
 		const { L: tL, relC } = TARGET_CURVE[shade];
 
-		// Shade 200 gets a slight hue rotation to separate it from 100
-		// (Bezold-Brücke compensation). Wrap into 0-360 range.
-		const shadeH = (!isAchromatic && shade === 200)
-			? ((H + HUE_SHIFT_200) % 360 + 360) % 360
-			: H;
-
-		// Chroma: shade 300 preserves user's input C (saturation intent).
-		// All others use relative chroma × gamut max at this (L, H).
-		// Achromatic inputs force C = 0 for a pure grey ramp.
 		let targetC: number;
 		if (isAchromatic) {
 			targetC = 0;
 		} else if (shade === 300) {
 			targetC = C_in;
 		} else {
-			targetC = relC * maxChromaAtLH(tL, shadeH);
+			targetC = relC * maxChromaAtLH(tL, H);
 		}
 
-		let finalC = clampChromaToGamut(tL, targetC, shadeH);
+		let finalC = clampChromaToGamut(tL, targetC, H);
 		const wasGamutReduced = Math.abs(targetC - finalC) > 0.001;
 
 		// Helmholtz-Kohlrausch compensation: reduce effective lightness
 		// proportionally to chroma so saturated shades don't appear
 		// brighter than their achromatic equivalent.
-		const targetL = isAchromatic ? tL : tL - HK_COEFF * finalC;
+		const targetL = (isAchromatic || shade === 300) ? tL : tL - HK_COEFF * finalC;
 
 		// Re-clamp chroma at the H-K adjusted lightness (safety net)
-		finalC = clampChromaToGamut(targetL, finalC, shadeH);
+		finalC = clampChromaToGamut(targetL, finalC, H);
 
-		const { r, g, b } = oklchToRgb(targetL, finalC, shadeH);
+		const { r, g, b } = oklchToRgb(targetL, finalC, H);
 		const hex = rgbToHex(r, g, b);
 		const lum = relativeLuminance(r, g, b);
 
-		const maxC = maxChromaAtLH(targetL, shadeH);
+		const maxC = maxChromaAtLH(targetL, H);
 		const gamutHeadroom = maxC > 0 ? Math.min(1, finalC / maxC) : 1;
 
 		const contrastOnWhite = contrastRatio(lum, 1.0);
@@ -194,7 +184,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		return {
 			shade,
 			hex,
-			oklch: { L: targetL, C: finalC, H: shadeH },
+			oklch: { L: targetL, C: finalC, H: H },
 			rgb: { r, g, b },
 			contrastOnWhite,
 			contrastOnBlack,

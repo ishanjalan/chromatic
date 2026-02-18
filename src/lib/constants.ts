@@ -60,7 +60,7 @@ const darkFloor = solveLForApca(
 // Ensures equal perceptual jumps between role tiers.
 
 export const BASE_RELC = 0.30;
-export const RELC_STEP = 0.15;
+export const RELC_STEP = 0.20;
 
 const SHADE_RELC_RANK: Record<number, number> = {
 	50: 0, 100: 1, 200: 2,
@@ -118,12 +118,6 @@ export const HK_COEFF = 0.04;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 
-/**
- * Hue rotation applied to shade 200 (in degrees).
- * A small negative shift moves 200 slightly "warmer" on the hue wheel,
- * increasing perceptual distance from shade 100 despite their close L values.
- */
-export const HUE_SHIFT_200 = -4;
 export type ShadeLevel = (typeof SHADE_LEVELS)[number];
 
 /**
