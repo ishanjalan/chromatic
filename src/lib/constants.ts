@@ -29,7 +29,7 @@ export const APCA_TARGET_LC = 75;
  */
 export const SHADE_HEADROOM: Record<number, number> = {
 	50:  0.092,   // tertiary: generous — ultra-light background tint
-	100: 0.064,   // secondary: moderate — hover/supporting fill
+	100: 0.040,   // secondary: moderate — hover/supporting fill
 	200: 0.021,   // primary (dark mode): tight — max colour identity
 	300: 0.033,   // anchor: slight push below floor for headroom
 	400: 0.216,   // secondary (dark): deep enough to separate from 300
