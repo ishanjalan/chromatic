@@ -221,11 +221,20 @@
 
 	function addToWorkspace() {
 		if (!currentScale) return;
-		const existing = workspace.findIndex((s) => s.name === currentScale!.name);
+		let scale = currentScale;
+
+		// Disambiguate if name collides with an uploaded token family
+		const uploadedNames = new Set(comparisonFamilies.map((f) => f.name));
+		if (uploadedNames.has(scale.name)) {
+			const suffix = activeSuggestionHex ? ' (suggested)' : ' (manual)';
+			scale = generateScale(scale.inputHex, scale.name + suffix);
+		}
+
+		const existing = workspace.findIndex((s) => s.name === scale.name);
 		if (existing >= 0) {
-			workspace[existing] = currentScale;
+			workspace[existing] = scale;
 		} else {
-			workspace = [...workspace, currentScale];
+			workspace = [...workspace, scale];
 		}
 	}
 

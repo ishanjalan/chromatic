@@ -19,7 +19,8 @@ import {
 	TEXT_LEVELS_GREY750,
 	TEXT_LEVELS_GREY50,
 	SHADE_ACTIVE_TEXT,
-	SHADE_TEXT_SEMANTIC
+	SHADE_TEXT_SEMANTIC,
+	HUE_SHIFT_200
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
 
@@ -137,14 +138,20 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		const targetL = tL;
 		const targetC = isAchromatic ? 0 : (shade === 300 ? C_in : tC);
 
-		const finalC = clampChromaToGamut(targetL, targetC, H);
+		// Shade 200 gets a slight hue rotation to separate it from 100
+		// (Bezold-Brücke compensation). Wrap into 0-360 range.
+		const shadeH = (!isAchromatic && shade === 200)
+			? ((H + HUE_SHIFT_200) % 360 + 360) % 360
+			: H;
+
+		const finalC = clampChromaToGamut(targetL, targetC, shadeH);
 		const wasGamutReduced = Math.abs(targetC - finalC) > 0.001;
 
-		const { r, g, b } = oklchToRgb(targetL, finalC, H);
+		const { r, g, b } = oklchToRgb(targetL, finalC, shadeH);
 		const hex = rgbToHex(r, g, b);
 		const lum = relativeLuminance(r, g, b);
 
-		const maxC = maxChromaAtLH(targetL, H);
+		const maxC = maxChromaAtLH(targetL, shadeH);
 		const gamutHeadroom = maxC > 0 ? Math.min(1, finalC / maxC) : 1;
 
 		const contrastOnWhite = contrastRatio(lum, 1.0);
@@ -173,7 +180,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		return {
 			shade,
 			hex,
-			oklch: { L: targetL, C: finalC, H },
+			oklch: { L: targetL, C: finalC, H: shadeH },
 			rgb: { r, g, b },
 			contrastOnWhite,
 			contrastOnBlack,

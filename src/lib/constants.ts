@@ -3,9 +3,15 @@
  *
  * L values: APCA-optimised so every shade passes its designated text
  * contrast requirements (Grey 750 for light fills, Grey 50 for dark fills).
- *   - Shade 200 L raised from 0.7258 → 0.7900 (was failing APCA Lc 60 for
- *     Grey 750 Primary text even on highly chromatic hues like Fuchsia/Magenta;
- *     now passes comfortably for all 12 hue families, worst-case Lc ≈ 48).
+ *   - Shade 200 L raised 0.7258 → 0.79 → 0.87 to achieve "Excellent"
+ *     (Lc ≥ 75) for Grey 750 Primary text across all hue families.
+ *     Worst case at 0.87: Fuchsia/Pink Lc ≈ 77. The 100↔200 L gap
+ *     narrows to 0.044 but chroma difference keeps them visually distinct.
+ *   - Shade 200 also receives a small hue rotation (HUE_SHIFT_200 = -4°)
+ *     to increase perceptual separation from shade 100 at similar L.
+ *     Based on the Bezold-Brücke effect — perceived hue shifts with
+ *     brightness, so a deliberate counter-rotation keeps each shade
+ *     feeling distinct. Skipped for achromatic inputs.
  *   - All other L values validated against APCA and remain unchanged.
  *
  * C values: derived from the mean chroma of gamut-unconstrained families
@@ -21,13 +27,20 @@
 export const TARGET_CURVE: Record<number, { L: number; C: number }> = {
 	50:  { L: 0.9417, C: 0.0335 },
 	100: { L: 0.9138, C: 0.0842 },
-	200: { L: 0.7900, C: 0.1238 },
+	200: { L: 0.8700, C: 0.1238 },
 	300: { L: 0.5387, C: 0.1729 },
 	400: { L: 0.3550, C: 0.0999 },
 	500: { L: 0.3276, C: 0.0548 },
 };
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
+
+/**
+ * Hue rotation applied to shade 200 (in degrees).
+ * A small negative shift moves 200 slightly "warmer" on the hue wheel,
+ * increasing perceptual distance from shade 100 despite their close L values.
+ */
+export const HUE_SHIFT_200 = -4;
 export type ShadeLevel = (typeof SHADE_LEVELS)[number];
 
 /**

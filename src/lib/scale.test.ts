@@ -131,19 +131,20 @@ describe('generateScale lightness normalisation', () => {
 // ── APCA Compliance ─────────────────────────────────────────────────
 
 describe('generateScale APCA compliance', () => {
-	it('all generated shades pass their APCA thresholds', () => {
-		// Test with a range of hues to ensure the fixed-C model works everywhere
-		const testHexes = ['#7E42EB', '#285BF3', '#007B28', '#B14B00', '#C51986'];
+	it('all generated shades achieve at least Lc 75 (Excellent) for primary text', () => {
+		const testHexes = [
+			'#7E42EB', '#285BF3', '#007B28', '#B14B00', '#C51986',
+			'#E53E3E', '#ECC94B', '#D53F8C', '#ED64A6'
+		];
 		for (const hex of testHexes) {
 			const scale = generateScale(hex);
 			for (const shade of scale.shades) {
 				const activeGroup = shade.textGroups.find((g) => g.isActive)!;
 				const primary = activeGroup.levels.find((l) => l.label === 'Primary')!;
-				// Primary text must achieve at least Lc 45 (large text minimum)
 				expect(
 					Math.abs(primary.apcaLc),
 					`${hex} shade ${shade.shade} primary APCA Lc=${primary.apcaLc.toFixed(1)}`
-				).toBeGreaterThanOrEqual(45);
+				).toBeGreaterThanOrEqual(75);
 			}
 		}
 	});
