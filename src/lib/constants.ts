@@ -59,7 +59,7 @@ const darkFloor = solveLForApca(
 //
 // Ensures equal perceptual jumps between role tiers.
 
-export const BASE_RELC = 0.60;
+export const BASE_RELC = 0.50;
 export const RELC_STEP = 0.20;
 
 const SHADE_RELC_RANK: Record<number, number> = {
