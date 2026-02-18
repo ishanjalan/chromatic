@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTokenJson, familiesToHueDots } from './parse-tokens';
+import { parseTokenJson, familiesToHueDots, detectTokenType } from './parse-tokens';
 
 const makeFamilyJson = (name: string, shades: Record<string, string>) => {
 	const entries: Record<string, object> = {};
@@ -122,5 +122,151 @@ describe('familiesToHueDots', () => {
 
 	it('returns empty for empty input', () => {
 		expect(familiesToHueDots([])).toEqual([]);
+	});
+});
+
+/* ─── Achromatic / Neutral family detection ─── */
+
+const makeGreyShades = (shadeKeys: string[]) => {
+	const entries: Record<string, object> = {};
+	for (const key of shadeKeys) {
+		const v = Math.round(255 * (1 - Number(key) / 1000));
+		const hex = `#${v.toString(16).padStart(2, '0').repeat(3).toUpperCase()}`;
+		entries[key] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex } };
+	}
+	return entries;
+};
+
+describe('achromatic family detection', () => {
+	it('detects pure grey families as achromatic', () => {
+		const json = JSON.stringify({
+			Colour: {
+				Grey: makeGreyShades(['0', '50', '100', '200', '300', '400', '500', '600', '700', '800'])
+			}
+		});
+		const result = parseTokenJson(json);
+		expect(result.families).toHaveLength(0);
+		expect(result.achromaticFamilies).toHaveLength(1);
+		expect(result.achromaticFamilies[0].name).toBe('Grey');
+		expect(result.achromaticFamilies[0].isAlpha).toBeFalsy();
+	});
+
+	it('imports all shade keys for achromatic families (not just core 6)', () => {
+		const shadeKeys = ['0', '50', '70', '100', '150', '200', '300', '350', '400', '500', '600', '650', '670', '680', '700', '750', '760', '800'];
+		const json = JSON.stringify({ Colour: { Grey: makeGreyShades(shadeKeys) } });
+		const result = parseTokenJson(json);
+		expect(result.achromaticFamilies[0].shadeCount).toBe(shadeKeys.length);
+	});
+});
+
+/* ─── Alpha / opacity family parsing ─── */
+
+describe('alpha family parsing', () => {
+	it('parses top-level alpha families', () => {
+		const entries: Record<string, object> = {};
+		for (const key of ['50', '100', '200', '300', '400', '500']) {
+			const alpha = Math.round(255 * Number(key) / 500).toString(16).padStart(2, '0');
+			entries[key] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: `#000000${alpha}` } };
+		}
+		const json = JSON.stringify({ Colour: { 'Grey Alpha': entries } });
+		const result = parseTokenJson(json);
+		expect(result.achromaticFamilies.length).toBeGreaterThanOrEqual(1);
+		const alphaFam = result.achromaticFamilies.find((f) => f.name === 'Grey Alpha');
+		expect(alphaFam).toBeDefined();
+		expect(alphaFam!.isAlpha).toBe(true);
+	});
+
+	it('parses nested alpha sub-families (e.g. Grey/Alpha)', () => {
+		const greyShades = makeGreyShades(['0', '50', '100', '200', '300', '400', '500', '600', '700', '800']);
+
+		const alphaEntries: Record<string, object> = {};
+		for (const key of ['50', '100', '200', '300', '400', '500']) {
+			const alpha = Math.round(255 * Number(key) / 500).toString(16).padStart(2, '0');
+			alphaEntries[key] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: `#000000${alpha}` } };
+		}
+
+		const json = JSON.stringify({
+			Colour: {
+				Grey: {
+					...greyShades,
+					Alpha: alphaEntries
+				}
+			}
+		});
+		const result = parseTokenJson(json);
+
+		// Should find both Grey (achromatic) and Grey Alpha (alpha)
+		expect(result.achromaticFamilies.length).toBe(2);
+		const greyFam = result.achromaticFamilies.find((f) => f.name === 'Grey');
+		const alphaFam = result.achromaticFamilies.find((f) => f.name === 'Grey Alpha');
+
+		expect(greyFam).toBeDefined();
+		expect(greyFam!.isAlpha).toBeFalsy();
+
+		expect(alphaFam).toBeDefined();
+		expect(alphaFam!.isAlpha).toBe(true);
+		expect(alphaFam!.shadeCount).toBe(6);
+	});
+
+	it('accepts 8-digit hex values (RRGGBBAA)', () => {
+		const entries: Record<string, object> = {};
+		entries['100'] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: '#1A1A1A33' } };
+		entries['200'] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: '#1A1A1A66' } };
+		entries['300'] = { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: '#1A1A1A99' } };
+
+		const json = JSON.stringify({ Colour: { 'GreyAlpha': entries } });
+		const result = parseTokenJson(json);
+		const alphaFam = result.achromaticFamilies.find((f) => f.name === 'GreyAlpha');
+		expect(alphaFam).toBeDefined();
+		expect(alphaFam!.isAlpha).toBe(true);
+		expect(alphaFam!.shadeCount).toBe(3);
+		expect(alphaFam!.shades[100]).toBe('#1A1A1A33');
+	});
+
+	it('does not duplicate parent family shades into nested sub-family', () => {
+		const greyShades = makeGreyShades(['0', '50', '100', '200', '300']);
+		const alphaEntries: Record<string, object> = {
+			'50': { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: '#00000019' } },
+			'100': { $type: 'color', $value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex: '#00000033' } }
+		};
+
+		const json = JSON.stringify({ Colour: { Grey: { ...greyShades, Alpha: alphaEntries } } });
+		const result = parseTokenJson(json);
+
+		const greyFam = result.achromaticFamilies.find((f) => f.name === 'Grey');
+		const alphaFam = result.achromaticFamilies.find((f) => f.name === 'Grey Alpha');
+
+		expect(greyFam!.shadeCount).toBe(5);
+		expect(alphaFam!.shadeCount).toBe(2);
+	});
+});
+
+/* ─── detectTokenType ─── */
+
+describe('detectTokenType', () => {
+	it('returns "primitive" for standard token JSON', () => {
+		const json = JSON.stringify(makeFamilyJson('Red', FULL_SHADES));
+		expect(detectTokenType(json)).toBe('primitive');
+	});
+
+	it('returns "semantic" for JSON with aliasData', () => {
+		const json = JSON.stringify({
+			Text: {
+				primary: {
+					$type: 'color',
+					$value: { hex: '#1D1D1D' },
+					$extensions: {
+						'com.figma.aliasData': {
+							targetVariableName: 'Colour/Grey/750'
+						}
+					}
+				}
+			}
+		});
+		expect(detectTokenType(json)).toBe('semantic');
+	});
+
+	it('returns "invalid" for non-JSON', () => {
+		expect(detectTokenType('not json')).toBe('invalid');
 	});
 });

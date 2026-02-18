@@ -1,6 +1,9 @@
 /**
  * Parse a Figma-exported Value.tokens.json (or similar) to extract
- * colour families and their 6 core shade hex values.
+ * colour families and their shade hex values.
+ *
+ * Chromatic families use the 6 core shades (50–500).
+ * Achromatic/neutral families import ALL numeric shade keys.
  *
  * Handles the standard Figma variable export format:
  *   { Colour: { FamilyName: { "50": { $type: "color", $value: { hex: "..." } }, ... } } }
@@ -22,8 +25,19 @@ export interface ParsedFamily {
 	source?: 'token' | 'workspace';
 }
 
+export interface AchromaticFamily {
+	name: string;
+	/** All numeric shade keys → hex, sorted by shade number */
+	shades: Record<number, string>;
+	/** Number of shades in this family */
+	shadeCount: number;
+	/** True if this is an alpha/opacity variant family (e.g. Grey Alpha) */
+	isAlpha?: boolean;
+}
+
 export interface ParseResult {
 	families: ParsedFamily[];
+	achromaticFamilies: AchromaticFamily[];
 	errors: string[];
 }
 
@@ -35,7 +49,7 @@ function isColourNode(obj: unknown): obj is { $type: string; $value: { hex: stri
 	if (o.$type !== 'color') return false;
 	if (typeof o.$value !== 'object' || o.$value === null) return false;
 	const val = o.$value as Record<string, unknown>;
-	return typeof val.hex === 'string' && /^#[0-9A-Fa-f]{6}$/.test(val.hex);
+	return typeof val.hex === 'string' && /^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/.test(val.hex);
 }
 
 function extractFamily(name: string, obj: Record<string, unknown>): ParsedFamily | null {
@@ -58,25 +72,67 @@ function extractFamily(name: string, obj: Record<string, unknown>): ParsedFamily
 	};
 }
 
+/**
+ * Extract ALL numeric shade keys from a family object.
+ * Used for achromatic/neutral families that have extended ranges (e.g. 0–800).
+ */
+function extractAllShades(name: string, obj: Record<string, unknown>): AchromaticFamily | null {
+	const shades: Record<number, string> = {};
+	let found = 0;
+
+	for (const [key, value] of Object.entries(obj)) {
+		if (!/^\d+$/.test(key)) continue;
+		if (!isColourNode(value)) continue;
+		const val = (value as { $value: { hex: string } }).$value;
+		shades[Number(key)] = val.hex.toUpperCase();
+		found++;
+	}
+
+	if (found === 0) return null;
+	return { name, shades, shadeCount: found };
+}
+
+/**
+ * Family-level achromatic detection.
+ * If >= 60% of a family's shades have Oklch chroma below threshold,
+ * the entire family is classified as neutral. Correctly handles
+ * "tinted neutrals" like #27272A that have a slight hue bias.
+ */
+function isFamilyAchromatic(shades: Record<number, string>): boolean {
+	const hexValues = Object.values(shades);
+	if (hexValues.length === 0) return false;
+	let achromaticCount = 0;
+	for (const hex of hexValues) {
+		try {
+			const { r, g, b } = hexToRgb(hex);
+			const { C } = rgbToOklch(r, g, b);
+			if (C < ACHROMATIC_THRESHOLD) achromaticCount++;
+		} catch { /* skip invalid */ }
+	}
+	return achromaticCount / hexValues.length >= 0.6;
+}
+
 function isFamilyCandidate(obj: unknown): obj is Record<string, unknown> {
 	if (typeof obj !== 'object' || obj === null) return false;
 	const entries = Object.entries(obj as Record<string, unknown>);
-	return entries.some(([key]) => CORE_SHADES.has(key));
+	// Accept families with core shade keys OR any numeric keys
+	return entries.some(([key]) => CORE_SHADES.has(key) || /^\d+$/.test(key));
 }
 
 export function parseTokenJson(raw: string): ParseResult {
 	const errors: string[] = [];
 	const families: ParsedFamily[] = [];
+	const achromaticFamilies: AchromaticFamily[] = [];
 
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);
 	} catch {
-		return { families: [], errors: ['Invalid JSON — could not parse the input.'] };
+		return { families: [], achromaticFamilies: [], errors: ['Invalid JSON — could not parse the input.'] };
 	}
 
 	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-		return { families: [], errors: ['Expected a JSON object at the top level.'] };
+		return { families: [], achromaticFamilies: [], errors: ['Expected a JSON object at the top level.'] };
 	}
 
 	const root = parsed as Record<string, unknown>;
@@ -91,37 +147,104 @@ export function parseTokenJson(raw: string): ParseResult {
 		: root;
 
 	if (typeof searchIn !== 'object' || searchIn === null) {
-		return { families: [], errors: ['Could not find colour data in the JSON.'] };
+		return { families: [], achromaticFamilies: [], errors: ['Could not find colour data in the JSON.'] };
 	}
 
 	for (const [name, value] of Object.entries(searchIn)) {
 		if (!isFamilyCandidate(value)) continue;
-		const family = extractFamily(name, value as Record<string, unknown>);
-		if (family) {
-			// Skip achromatic/neutral families — they have no meaningful hue
-			const anchorHex = family.shades[300] ?? family.shades[200] ?? family.shades[100] ?? family.shades[50];
-			if (anchorHex) {
-				const { r, g, b } = hexToRgb(anchorHex);
-				const { C } = rgbToOklch(r, g, b);
-				if (C < ACHROMATIC_THRESHOLD) {
-					errors.push(`${name}: skipped (achromatic/neutral — no meaningful hue for scale generation)`);
-					continue;
+
+		// Skip non-colour families
+		if (/special/i.test(name)) continue;
+
+		const isAlphaFamily = /alpha/i.test(name);
+
+		// First, extract all numeric shades to check if achromatic
+		const allShades = extractAllShades(name, value as Record<string, unknown>);
+		if (!allShades || allShades.shadeCount === 0) continue;
+
+		if (isAlphaFamily || isFamilyAchromatic(allShades.shades)) {
+			// Achromatic / alpha family — import with all shade keys
+			achromaticFamilies.push({ ...allShades, isAlpha: isAlphaFamily });
+		} else {
+			// Chromatic family — extract only core shades
+			const family = extractFamily(name, value as Record<string, unknown>);
+			if (family) {
+				families.push(family);
+				if (!family.complete) {
+					const missing = SHADE_LEVELS.filter((s) => !(s in family.shades));
+					errors.push(`${name}: missing shades ${missing.join(', ')}`);
 				}
 			}
+		}
 
-			families.push(family);
-			if (!family.complete) {
-				const missing = SHADE_LEVELS.filter((s) => !(s in family.shades));
-				errors.push(`${name}: missing shades ${missing.join(', ')}`);
+		// Check for nested sub-families (e.g. Grey/Alpha inside Grey)
+		const parentObj = value as Record<string, unknown>;
+		for (const [subName, subValue] of Object.entries(parentObj)) {
+			if (/^\d+$/.test(subName) || subName.startsWith('$')) continue;
+			if (typeof subValue !== 'object' || subValue === null) continue;
+			if (!isFamilyCandidate(subValue)) continue;
+
+			const composedName = `${name} ${subName}`;
+			if (/special/i.test(subName)) continue;
+
+			const isSubAlpha = /alpha/i.test(subName);
+			const subShades = extractAllShades(composedName, subValue as Record<string, unknown>);
+			if (!subShades || subShades.shadeCount === 0) continue;
+
+			if (isSubAlpha || isFamilyAchromatic(subShades.shades)) {
+				achromaticFamilies.push({ ...subShades, isAlpha: isSubAlpha });
+			} else {
+				const subFamily = extractFamily(composedName, subValue as Record<string, unknown>);
+				if (subFamily) {
+					families.push(subFamily);
+					if (!subFamily.complete) {
+						const missing = SHADE_LEVELS.filter((s) => !(s in subFamily.shades));
+						errors.push(`${composedName}: missing shades ${missing.join(', ')}`);
+					}
+				}
 			}
 		}
 	}
 
-	if (families.length === 0) {
+	if (families.length === 0 && achromaticFamilies.length === 0) {
 		errors.push('No colour families found. Expected format: { Colour: { FamilyName: { "50": { $type: "color", $value: { hex: "..." } }, ... } } }');
 	}
 
-	return { families, errors };
+	return { families, achromaticFamilies, errors };
+}
+
+/**
+ * Auto-detect whether a parsed JSON object is a primitives file or a semantic file.
+ * Semantic files have `$extensions.com.figma.aliasData` on their colour nodes.
+ */
+export function detectTokenType(raw: string): 'primitive' | 'semantic' | 'invalid' {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return 'invalid';
+	}
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'invalid';
+
+	function hasAliasData(obj: unknown): boolean {
+		if (typeof obj !== 'object' || obj === null) return false;
+		const o = obj as Record<string, unknown>;
+		// Check this node
+		if (o.$type === 'color' && typeof o.$extensions === 'object' && o.$extensions !== null) {
+			const ext = o.$extensions as Record<string, unknown>;
+			if (typeof ext['com.figma.aliasData'] === 'object' && ext['com.figma.aliasData'] !== null) {
+				return true;
+			}
+		}
+		// Recurse into children (skip $-prefixed keys to avoid deep dives into metadata)
+		for (const [key, val] of Object.entries(o)) {
+			if (key.startsWith('$')) continue;
+			if (hasAliasData(val)) return true;
+		}
+		return false;
+	}
+
+	return hasAliasData(parsed) ? 'semantic' : 'primitive';
 }
 
 /**

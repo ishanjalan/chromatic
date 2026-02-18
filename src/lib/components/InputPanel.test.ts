@@ -26,10 +26,10 @@ describe('InputPanel', () => {
 		expect(labels.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it('renders the Family Name label', () => {
+	it('renders the Name label', () => {
 		const onChange = vi.fn();
 		render(InputPanel, { props: { hexValue: '', colorName: 'Custom', onChange } });
-		const labels = screen.getAllByText('Family Name');
+		const labels = screen.getAllByText('Name');
 		expect(labels.length).toBeGreaterThanOrEqual(1);
 	});
 
@@ -38,7 +38,7 @@ describe('InputPanel', () => {
 		render(InputPanel, { props: { hexValue: '', colorName: 'Custom', onChange } });
 		const input = screen.getAllByPlaceholderText('#7E42EB')[0];
 		await fireEvent.input(input, { target: { value: 'ZZZZZZ' } });
-		const errors = screen.getAllByText('Enter a valid 6-character hex (e.g. #7E42EB)');
+		const errors = screen.getAllByText('Invalid hex');
 		expect(errors.length).toBeGreaterThanOrEqual(1);
 	});
 
