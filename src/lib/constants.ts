@@ -28,8 +28,8 @@ export const APCA_TARGET_LC = 75;
  * Smaller headroom → tighter to the floor, more vivid.
  */
 export const SHADE_HEADROOM: Record<number, number> = {
-	50:  0.092,   // tertiary: generous — ultra-light background tint
-	100: 0.040,   // secondary: moderate — hover/supporting fill
+	50:  0.065,   // tertiary: reduced from 0.092 to open ~2× more chroma gamut
+	100: 0.035,   // secondary: reduced from 0.040 for slightly more gamut
 	200: 0.021,   // primary (dark mode): tight — max colour identity
 	300: 0.033,   // anchor: slight push below floor for headroom
 	400: 0.216,   // secondary (dark): deep enough to separate from 300
@@ -59,7 +59,7 @@ const darkFloor = solveLForApca(
 //
 // Ensures equal perceptual jumps between role tiers.
 
-export const BASE_RELC = 0.35;
+export const BASE_RELC = 0.60;
 export const RELC_STEP = 0.20;
 
 const SHADE_RELC_RANK: Record<number, number> = {
