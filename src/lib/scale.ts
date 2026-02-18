@@ -20,7 +20,8 @@ import {
 	TEXT_LEVELS_GREY50,
 	SHADE_ACTIVE_TEXT,
 	SHADE_TEXT_SEMANTIC,
-	HK_COEFF
+	HK_COEFF,
+	CHROMA_CAP
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
 
@@ -138,6 +139,10 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 			targetC = C_in;
 		} else {
 			targetC = relC * maxChromaAtLH(tL, H);
+			const cap = CHROMA_CAP[shade];
+			if (cap !== undefined && targetC > cap) {
+				targetC = cap;
+			}
 		}
 
 		let finalC = clampChromaToGamut(tL, targetC, H);

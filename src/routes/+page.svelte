@@ -496,7 +496,7 @@
 	<div class="chromatic-accent-line w-full"></div>
 
 	<!-- Header -->
-	<header class="sticky top-0 z-40" style="background: rgba(9, 9, 11, 0.82); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);">
+	<header class="sticky top-0 z-40 header-glow" style="background: rgba(9, 9, 11, 0.82); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);">
 		<div class="max-w-[1600px] mx-auto px-6 lg:px-10 py-3.5 flex items-center justify-between">
 			<div class="flex items-center gap-3.5">
 				<!-- Chromatic logomark — spectrum C -->
@@ -529,11 +529,11 @@
 			</div>
 			<div class="flex items-center gap-4">
 				{#if sectionAnchors.length > 0}
-					<nav class="hidden md:flex items-center gap-1">
+					<nav class="hidden md:flex items-center gap-0.5">
 						{#each sectionAnchors as anchor (anchor.id)}
 							<button
 								onclick={() => scrollToSection(anchor.id)}
-								class="px-2.5 py-1 rounded-md text-[11px] font-body font-500 cursor-pointer transition-all duration-150 hover:bg-white/[0.06]"
+								class="nav-pill px-3 py-1.5 rounded-md text-[11px] font-body font-500 cursor-pointer"
 								style="color: var(--text-tertiary)"
 							>
 								{anchor.label}
@@ -542,12 +542,12 @@
 					</nav>
 				{/if}
 				{#if currentScale}
-					<div class="flex items-center gap-2.5 fade-in">
-						<div class="w-3 h-3 rounded-full" style="background-color: {currentScale.inputHex}; box-shadow: 0 0 6px {currentScale.inputHex}40"></div>
+					<div class="flex items-center gap-2.5 fade-in" style="border-left: 1px solid var(--border-subtle); padding-left: 1rem">
+						<div class="w-3 h-3 rounded-full" style="background-color: {currentScale.inputHex}; box-shadow: 0 0 8px {currentScale.inputHex}50"></div>
 						<span class="font-display text-sm font-500" style="color: var(--text-secondary)">{currentScale.name}</span>
 						<span
-							class="font-mono text-[13px]"
-							style="color: var(--text-tertiary)"
+							class="font-mono text-[12px]"
+							style="color: var(--text-ghost)"
 							title="{currentScale.isAchromatic ? 'Neutral / achromatic colour' : `Oklch hue angle: ${currentScale.hue.toFixed(1)}°`}"
 						>{currentScale.isAchromatic ? 'Neutral' : `${currentScale.hue.toFixed(1)}°`}</span>
 					</div>
@@ -564,7 +564,7 @@
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8 fade-in">
 				<!-- Lane A: Audit existing palette (primary) -->
 				<div
-					class="group rounded-2xl p-7 flex flex-col gap-5 relative overflow-hidden transition-all duration-300 hover:border-cyan-400/20"
+					class="group rounded-2xl p-7 flex flex-col gap-5 relative overflow-hidden transition-all duration-300 interactive-surface"
 					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
 				>
 					<div
@@ -619,8 +619,8 @@
 							></textarea>
 							<button
 								onclick={handleComparisonParse}
-								class="mt-2 font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer transition-all duration-200 hover:opacity-90"
-								style="background: {accentColor}; color: white"
+								class="cta-glow mt-2 font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer"
+								style="background: {accentColor}; color: white; --cta-glow-color: {accentColor}40"
 							>
 								Analyse Tokens
 							</button>
@@ -630,7 +630,7 @@
 
 				<!-- Lane B: Start from scratch (secondary) -->
 				<div
-					class="group rounded-2xl p-7 flex flex-col gap-5 relative overflow-hidden transition-all duration-300 hover:border-violet-400/20"
+					class="group rounded-2xl p-7 flex flex-col gap-5 relative overflow-hidden transition-all duration-300 interactive-surface"
 					style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
 				>
 					<div
@@ -683,20 +683,20 @@
 								<button
 									onclick={historyBack}
 									disabled={!canGoBack}
-									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
+									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default inline-flex items-center gap-1.5"
 									style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
 									title="Undo (Cmd/Ctrl+Z)"
 								>
-									← Undo
+									← Undo <kbd>⌘Z</kbd>
 								</button>
 								<button
 									onclick={historyForward}
 									disabled={!canGoForward}
-									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default"
+									class="font-mono text-[12px] px-2.5 py-1 rounded-lg cursor-pointer transition-all duration-200 disabled:opacity-30 disabled:cursor-default inline-flex items-center gap-1.5"
 									style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
 									title="Redo (Cmd/Ctrl+Shift+Z)"
 								>
-									Redo →
+									Redo → <kbd>⇧⌘Z</kbd>
 								</button>
 							</div>
 						{/if}
@@ -755,17 +755,17 @@
 		<!-- Workspace strip — compact indicator of workspace families -->
 		{#if workspace.length > 0}
 			<div
-				class="rounded-xl px-4 py-2.5 mb-5 flex items-center gap-3 flex-wrap fade-in"
+				class="rounded-xl px-4 py-2.5 mb-5 flex items-center gap-3 flex-wrap fade-in interactive-surface"
 				style="background: var(--surface-1); border: 1px solid var(--border-subtle)"
 			>
-				<span class="shrink-0 font-body text-[11px] font-500" style="color: var(--text-tertiary)">
+				<span class="shrink-0 font-body text-[11px] font-600 uppercase tracking-wider" style="color: var(--text-ghost)">
 					{workspace.length} {workspace.length === 1 ? 'family' : 'families'}
 				</span>
 				<div class="flex items-center gap-1.5 flex-wrap">
-					{#each workspace as ws (ws.name)}
+					{#each workspace as ws, i (ws.name)}
 						<button
-							class="w-5 h-5 rounded-full ring-1 ring-white/10 cursor-pointer transition-all hover:ring-2 hover:ring-white/30 hover:scale-110 card-enter"
-							style="background-color: {ws.shades[3]?.hex ?? ws.inputHex}"
+							class="w-5 h-5 rounded-full ring-1 ring-white/10 cursor-pointer transition-all hover:ring-2 hover:ring-white/30 hover:scale-125 dot-appear"
+							style="background-color: {ws.shades[3]?.hex ?? ws.inputHex}; animation-delay: {i * 30}ms; box-shadow: 0 0 6px {ws.shades[3]?.hex ?? ws.inputHex}30"
 							title="{ws.name} ({ws.inputHex}) — click to load"
 							onclick={() => handleSelectFamily(ws.inputHex, ws.name)}
 						></button>
@@ -811,7 +811,7 @@
 							class="w-5 h-5 rounded-md ring-1 ring-white/10"
 							style="background-color: {currentScale.inputHex}"
 						></div>
-						<p class="font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
+						<p class="section-heading font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
 							Generated Scale
 						</p>
 						<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
@@ -820,8 +820,8 @@
 						</span>
 						<button
 							onclick={addToWorkspace}
-							class="text-[13px] font-body font-500 px-4 py-1.5 rounded-lg transition-all duration-200 cursor-pointer hover:opacity-90"
-							style="background: {accentColor}; color: white;"
+							class="cta-glow text-[13px] font-body font-500 px-4 py-1.5 rounded-lg cursor-pointer"
+							style="background: {accentColor}; color: white; --cta-glow-color: {accentColor}40"
 							title="Save this colour family to the workspace"
 						>
 							+ Add to Workspace
@@ -896,9 +896,23 @@
 				{/key}
 
 				<!-- Scale preview — token usage + colour blindness -->
-				<div class="mt-4">
-					<ScalePreview scale={currentScale} />
-				</div>
+				<details class="mt-4 group">
+					<summary
+						class="flex items-center gap-2.5 px-4 py-3 rounded-xl cursor-pointer select-none font-body text-[13px] font-500 transition-all duration-200 interactive-surface"
+						style="background: var(--surface-1); border: 1px solid var(--border-subtle); color: var(--text-secondary)"
+					>
+						<svg class="w-3 h-3 transition-transform duration-300 group-open:rotate-90" style="color: var(--text-ghost)" viewBox="0 0 16 16" fill="currentColor">
+							<path d="M6 3l5 5-5 5V3z"/>
+						</svg>
+						Preview &amp; Colour Blindness
+						<span class="font-400 text-[11px] ml-1" style="color: var(--text-ghost)">Material 3 Expressive &middot; CVD simulation</span>
+						<span class="flex-1"></span>
+						<kbd class="group-open:hidden">expand</kbd>
+					</summary>
+					<div class="mt-2">
+						<ScalePreview scale={currentScale} />
+					</div>
+				</details>
 			{:else}
 				<!-- Empty state — shown when we have families but no scale yet -->
 				<div
@@ -938,7 +952,7 @@
 		</section>
 
 		<!-- Palette Analysis — Upload, Compare, Audit (unified section) -->
-		<section id="palette" class="mb-8 scroll-mt-16">
+		<section id="palette" class="mb-8 scroll-mt-16 section-reveal">
 		<svelte:boundary onerror={(e) => console.error('Palette analysis error:', e)}>
 			{#snippet failed(error, reset)}
 				<div class="px-5 py-6 rounded-2xl text-center" style="background: var(--surface-1); border: 1px solid rgba(239,68,68,0.2)">
@@ -948,7 +962,7 @@
 				</div>
 			{/snippet}
 			<div class="flex items-center gap-3 mb-3">
-				<p class="font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
+				<p class="section-heading font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
 					Palette Analysis
 				</p>
 				<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
@@ -1010,8 +1024,8 @@
 						></textarea>
 						<button
 							onclick={handleComparisonParse}
-							class="font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer transition-all duration-200 hover:opacity-90"
-							style="background: {accentColor}; color: white"
+							class="cta-glow font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer"
+							style="background: {accentColor}; color: white; --cta-glow-color: {accentColor}40"
 						>
 							Analyse Tokens
 						</button>
@@ -1096,9 +1110,9 @@
 
 			<!-- Neutral Scales — achromatic family analysis -->
 			{#if achromaticFamilies.length > 0}
-				<div id="neutrals" class="mt-6 scroll-mt-16">
+				<div id="neutrals" class="mt-6 scroll-mt-16 section-reveal" style="animation-delay: 100ms">
 					<div class="flex items-center gap-3 mb-3">
-						<p class="font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
+						<p class="section-heading font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
 							Neutral Scales
 						</p>
 						<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
@@ -1112,9 +1126,9 @@
 
 			<!-- Primitive Coverage — semantic token cross-reference -->
 			{#if coverageAnalysis}
-				<div id="coverage" class="mt-6 scroll-mt-16">
+				<div id="coverage" class="mt-6 scroll-mt-16 section-reveal" style="animation-delay: 150ms">
 					<div class="flex items-center gap-3 mb-3">
-						<p class="font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
+						<p class="section-heading font-display text-[12px] font-600 uppercase tracking-[0.10em]" style="color: var(--text-secondary)">
 							Semantic Coverage
 						</p>
 						<div class="flex-1 h-px" style="background: var(--border-subtle)"></div>
@@ -1140,4 +1154,33 @@
 		<!-- end two-lane / normal mode conditional -->
 
 	</main>
+
+	<!-- Footer -->
+	<footer class="chromatic-footer mt-8 py-8">
+		<div class="max-w-[1600px] mx-auto px-6 lg:px-10">
+			<div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+				<div class="flex items-center gap-3">
+					<svg viewBox="0 0 32 32" width="20" height="20" fill="none" style="opacity: 0.4">
+						<path
+							d="M22 6.5A11.5 11.5 0 1 0 22 25.5"
+							stroke="url(#chromatic-grad)"
+							stroke-width="3"
+							stroke-linecap="round"
+						/>
+					</svg>
+					<span class="font-display text-[13px] font-500" style="color: var(--text-ghost)">
+						Chromatic
+					</span>
+					<span class="text-[11px] font-mono" style="color: var(--text-ghost); opacity: 0.5">
+						v1.0
+					</span>
+				</div>
+				<div class="flex items-center gap-4 text-[11px] font-body" style="color: var(--text-ghost)">
+					<span>Oklch · APCA · Perceptual colour science</span>
+					<span style="opacity: 0.3">·</span>
+					<span style="opacity: 0.6">Built for design systems</span>
+				</div>
+			</div>
+		</div>
+	</footer>
 </div>

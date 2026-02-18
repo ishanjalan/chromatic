@@ -11,8 +11,18 @@ import { solveLForApca } from './colour';
 // Changing the text colours, Lc target, or headroom automatically
 // recalculates all L values — no manual recalibration needed.
 
-/** Minimum APCA |Lc| for primary text on any shade. */
+/** Minimum APCA |Lc| for primary text on most shades. */
 export const APCA_TARGET_LC = 75;
+
+/**
+ * APCA |Lc| target for shade 200 (dark-mode Primary).
+ *
+ * Shade 200 targets "good" (Lc 60) rather than "excellent" (Lc 75).
+ * This preserves significantly more chroma gamut for the dark-mode
+ * hero fill while still comfortably exceeding the APCA minimum
+ * for body text (Lc 45).
+ */
+export const APCA_TARGET_LC_200 = 60;
 
 /**
  * Aesthetic headroom above the APCA contrast floor.
@@ -30,7 +40,7 @@ export const APCA_TARGET_LC = 75;
 export const SHADE_HEADROOM: Record<number, number> = {
 	50:  0.065,   // tertiary: reduced from 0.092 to open ~2× more chroma gamut
 	100: 0.035,   // secondary: reduced from 0.040 for slightly more gamut
-	200: 0.021,   // primary (dark mode): tight — max colour identity
+	200: 0.040,   // mid-fill: compensates for chroma's H-K impact on APCA
 	300: 0.033,   // anchor: slight push below floor for headroom
 	400: 0.216,   // secondary (dark): deep enough to separate from 300
 	500: 0.291,   // tertiary (dark): very deep — background anchor
@@ -74,13 +84,28 @@ function shadeRelC(shade: number): number {
 	return BASE_RELC + rank * RELC_STEP;
 }
 
+// ── Shade 200: APCA Lc 60 derivation ────────────────────────────────
+//
+// Shade 200 targets "good" APCA (Lc 60) instead of "excellent" (Lc 75).
+// The Lc 60 achromatic floor is ~0.763; headroom accounts for chromatic
+// fills losing APCA contrast through H-K compression.
+
+const lightFloor_200 = solveLForApca(
+	GREY_750_RGB.r, GREY_750_RGB.g, GREY_750_RGB.b,
+	APCA_TARGET_LC_200, 'light-fill'
+);
+
 /**
  * TARGET_CURVE — APCA-derived Oklch L and equal-step relative chroma.
  *
  * ## Lightness (L)
- * Derived from: floor(APCA_TARGET_LC, textColour) ± SHADE_HEADROOM.
- * Light fills (50, 100, 200): L = lightFloor + headroom
- * Dark fills (300, 400, 500): L = darkFloor - headroom
+ * Light fills (50, 100): L = lightFloor(75) + headroom  (APCA Lc ≥ 75)
+ * Mid-fill (200):        L = lightFloor(60) + headroom  (APCA Lc ≥ 60)
+ * Dark fills (300–500):  L = darkFloor(75)  - headroom  (APCA Lc ≥ 75)
+ *
+ * Shade 200 targets "good" APCA (Lc 60) instead of "excellent" (Lc 75),
+ * preserving significantly more chroma gamut for the dark-mode Primary
+ * while reliably passing body-text readability.
  *
  * ## Chroma (relC)
  * Equal-step progression: relC = BASE_RELC + rank × RELC_STEP.
@@ -92,12 +117,12 @@ function shadeRelC(shade: number): number {
  * for the Helmholtz-Kohlrausch effect.
  */
 export const TARGET_CURVE: Record<number, { L: number; relC: number }> = {
-	50:  { L: lightFloor + SHADE_HEADROOM[50],  relC: shadeRelC(50) },
-	100: { L: lightFloor + SHADE_HEADROOM[100], relC: shadeRelC(100) },
-	200: { L: lightFloor + SHADE_HEADROOM[200], relC: shadeRelC(200) },
-	300: { L: darkFloor  - SHADE_HEADROOM[300], relC: shadeRelC(300) },
-	400: { L: darkFloor  - SHADE_HEADROOM[400], relC: shadeRelC(400) },
-	500: { L: darkFloor  - SHADE_HEADROOM[500], relC: shadeRelC(500) },
+	50:  { L: lightFloor     + SHADE_HEADROOM[50],  relC: shadeRelC(50) },
+	100: { L: lightFloor     + SHADE_HEADROOM[100], relC: shadeRelC(100) },
+	200: { L: lightFloor_200 + SHADE_HEADROOM[200], relC: shadeRelC(200) },
+	300: { L: darkFloor      - SHADE_HEADROOM[300], relC: shadeRelC(300) },
+	400: { L: darkFloor      - SHADE_HEADROOM[400], relC: shadeRelC(400) },
+	500: { L: darkFloor      - SHADE_HEADROOM[500], relC: shadeRelC(500) },
 };
 
 /**
@@ -115,6 +140,29 @@ export const ANCHOR_REF_CHROMA = 0.1729;
  * Calibrated so the maximum L reduction is ~0.007 (at C ≈ 0.17).
  */
 export const HK_COEFF = 0.04;
+
+/**
+ * Maximum absolute Oklch chroma per shade.
+ *
+ * The sRGB gamut varies ~4× by hue at high lightness: green/yellow can
+ * reach C ≈ 0.19 while blue/purple max out at C ≈ 0.04. A uniform relC
+ * therefore produces visually unbalanced results — wide-gamut hues
+ * overpower narrow ones.
+ *
+ * The cap lets cool hues use their full relC allocation (they're naturally
+ * below it) while restraining warm/green hues. Calibrated from Tailwind
+ * v4 and Radix Colors, where the max chroma at shade 50 is ~0.031 and
+ * at shade 100 is ~0.071.
+ *
+ * Only the lightest fills need caps — dark fills (400, 500) have narrow
+ * gamut at low lightness so the cap isn't needed. Shade 200 at L ≈ 0.80
+ * has wide gamut, but high chroma is intentional for the Primary fill.
+ * Shade 300 uses the user's input chroma directly.
+ */
+export const CHROMA_CAP: Partial<Record<number, number>> = {
+	50:  0.04,
+	100: 0.08,
+};
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 

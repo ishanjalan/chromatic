@@ -10,6 +10,7 @@ import {
 	ANCHOR_REF_CHROMA,
 	HK_COEFF,
 	APCA_TARGET_LC,
+	APCA_TARGET_LC_200,
 	SHADE_HEADROOM,
 	BASE_RELC,
 	RELC_STEP
@@ -71,9 +72,9 @@ describe('TARGET_CURVE', () => {
 // ── APCA-Derived L targets ──────────────────────────────────────────
 
 describe('APCA-derived L targets', () => {
-	it('light fills (50, 100, 200) all pass Lc >= APCA_TARGET_LC with Grey 750', () => {
+	it('light fills (50, 100) all pass Lc >= APCA_TARGET_LC with Grey 750', () => {
 		const grey750 = TEXT_LEVELS_GREY750[0];
-		for (const shade of [50, 100, 200] as const) {
+		for (const shade of [50, 100] as const) {
 			const L = TARGET_CURVE[shade].L;
 			const { r, g, b } = oklchToRgb(L, 0, 0);
 			const lc = Math.abs(apcaContrast(grey750.r, grey750.g, grey750.b, r, g, b));
@@ -91,20 +92,28 @@ describe('APCA-derived L targets', () => {
 		}
 	});
 
-	it('headroom is positive for all shades', () => {
-		for (const shade of SHADE_LEVELS) {
+	it('headroom is positive for all headroom shades', () => {
+		for (const shade of [50, 100, 200, 300, 400, 500] as const) {
 			expect(SHADE_HEADROOM[shade]).toBeGreaterThan(0);
 		}
 	});
 
 	it('derived L values land close to historically validated values', () => {
 		const expected: Record<number, number> = {
-			50: 0.94, 100: 0.91, 200: 0.90,
+			50: 0.94, 100: 0.88, 200: 0.80,
 			300: 0.54, 400: 0.36, 500: 0.28,
 		};
 		for (const shade of SHADE_LEVELS) {
 			expect(TARGET_CURVE[shade].L).toBeCloseTo(expected[shade], 1);
 		}
+	});
+
+	it('shade 200 passes Lc >= APCA_TARGET_LC_200 (60) with Grey 750', () => {
+		const grey750 = TEXT_LEVELS_GREY750[0];
+		const L = TARGET_CURVE[200].L;
+		const { r, g, b } = oklchToRgb(L, 0, 0);
+		const lc = Math.abs(apcaContrast(grey750.r, grey750.g, grey750.b, r, g, b));
+		expect(lc, `Shade 200 should pass Lc ${APCA_TARGET_LC_200}`).toBeGreaterThanOrEqual(APCA_TARGET_LC_200);
 	});
 });
 

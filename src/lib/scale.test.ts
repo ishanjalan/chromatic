@@ -133,14 +133,16 @@ describe('generateScale lightness normalisation', () => {
 // ── APCA Compliance ─────────────────────────────────────────────────
 
 describe('generateScale APCA compliance', () => {
-	it('all generated shades achieve at least Lc 75 (Excellent) for primary text', () => {
-		const testHexes = [
-			'#7E42EB', '#285BF3', '#007B28', '#B14B00', '#C51986',
-			'#E53E3E', '#ECC94B', '#D53F8C', '#ED64A6'
-		];
+	const testHexes = [
+		'#7E42EB', '#285BF3', '#007B28', '#B14B00', '#C51986',
+		'#E53E3E', '#ECC94B', '#D53F8C', '#ED64A6'
+	];
+
+	it('shades 50, 100, 300, 400, 500 achieve at least Lc 75 (Excellent) for primary text', () => {
 		for (const hex of testHexes) {
 			const scale = generateScale(hex);
 			for (const shade of scale.shades) {
+				if (shade.shade === 200) continue;
 				const activeGroup = shade.textGroups.find((g) => g.isActive)!;
 				const primary = activeGroup.levels.find((l) => l.label === 'Primary')!;
 				expect(
@@ -148,6 +150,19 @@ describe('generateScale APCA compliance', () => {
 					`${hex} shade ${shade.shade} primary APCA Lc=${primary.apcaLc.toFixed(1)}`
 				).toBeGreaterThanOrEqual(75);
 			}
+		}
+	});
+
+	it('shade 200 (mid-fill) achieves at least Lc 60 (good) for primary text', () => {
+		for (const hex of testHexes) {
+			const scale = generateScale(hex);
+			const s200 = scale.shades.find((s) => s.shade === 200)!;
+			const activeGroup = s200.textGroups.find((g) => g.isActive)!;
+			const primary = activeGroup.levels.find((l) => l.label === 'Primary')!;
+			expect(
+				Math.abs(primary.apcaLc),
+				`${hex} shade 200 primary APCA Lc=${primary.apcaLc.toFixed(1)}`
+			).toBeGreaterThanOrEqual(60);
 		}
 	});
 });
