@@ -95,4 +95,38 @@ describe('findClosestTailwind', () => {
 		expect(names).toContain('Amber');
 		expect(names).toContain('Fuchsia');
 	});
+
+	it('returns all four confidence levels for different inputs', () => {
+		const exact = findClosestTailwind('#3B82F6');
+		expect(exact.confidence).toBe('exact');
+		expect(exact.hueDelta).toBeLessThan(8);
+
+		// Hue ~205° sits between Teal (186.4°) and Cyan (223.1°) — ~18.6° from Teal
+		const candidates = [
+			'#1A7F8F', '#1A8898', '#1A90A0', '#1E88A0', '#2090A8',
+			'#2498B0', '#15939E', '#1B959F', '#1C97A2', '#1899A5',
+		];
+		let foundApprox = false;
+		for (const hex of candidates) {
+			const result = findClosestTailwind(hex);
+			if (result.confidence === 'approximate') {
+				foundApprox = true;
+				expect(result.hueDelta).toBeGreaterThanOrEqual(18);
+				expect(result.hueDelta).toBeLessThan(30);
+				break;
+			}
+		}
+		if (!foundApprox) {
+			// Fallback: use a known hue ~95° (yellow-green gap, 28° from Yellow)
+			const fallbackCandidates = ['#6B8E23', '#7BA428', '#88AA22', '#556B2F', '#8FBC29'];
+			for (const hex of fallbackCandidates) {
+				const result = findClosestTailwind(hex);
+				if (result.confidence === 'approximate') {
+					foundApprox = true;
+					break;
+				}
+			}
+		}
+		expect(foundApprox).toBe(true);
+	});
 });

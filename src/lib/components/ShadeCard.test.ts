@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/svelte';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, fireEvent } from '@testing-library/svelte';
 import ShadeCard from './ShadeCard.svelte';
 import { generateScale } from '$lib/scale';
 
@@ -94,5 +94,15 @@ describe('ShadeCard', () => {
 		render(ShadeCard, { props: { shade } });
 		const buttons = screen.getAllByTitle('Click to copy hex value');
 		expect(buttons.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it('copies hex to clipboard on button click', async () => {
+		const shade = getTestShade(300);
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.assign(navigator, { clipboard: { writeText } });
+		render(ShadeCard, { props: { shade } });
+		const button = screen.getAllByTitle('Click to copy hex value')[0];
+		await fireEvent.click(button);
+		expect(writeText).toHaveBeenCalledWith(shade.hex);
 	});
 });

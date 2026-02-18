@@ -74,4 +74,36 @@ describe('InputPanel', () => {
 		const helpers = screen.getAllByText('The base colour from which all 6 shades will be generated.');
 		expect(helpers.length).toBeGreaterThanOrEqual(1);
 	});
+
+	it('fires onChange on name input when hex is valid', async () => {
+		const onChange = vi.fn();
+		render(InputPanel, { props: { hexValue: '#3B82F6', colorName: 'Blue', onChange } });
+		const hexInput = screen.getAllByPlaceholderText('#7E42EB')[0];
+		await fireEvent.input(hexInput, { target: { value: '#3B82F6' } });
+		onChange.mockClear();
+		const nameInput = screen.getAllByPlaceholderText('Custom')[0];
+		await fireEvent.input(nameInput, { target: { value: 'NewBlue' } });
+		expect(onChange).toHaveBeenCalled();
+	});
+
+	it('fires onChange on colour picker input', async () => {
+		const onChange = vi.fn();
+		render(InputPanel, { props: { hexValue: '', colorName: 'Custom', onChange } });
+		const picker = document.querySelector('input[type="color"]') as HTMLInputElement;
+		expect(picker).not.toBeNull();
+		await fireEvent.input(picker, { target: { value: '#FF0000' } });
+		expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+			hex: expect.stringMatching(/^#[0-9A-F]{6}$/)
+		}));
+	});
+
+	it('exposes setHex method that triggers onChange', () => {
+		const onChange = vi.fn();
+		const { component } = render(InputPanel, { props: { hexValue: '', colorName: 'TestName', onChange } });
+		(component as unknown as { setHex: (hex: string) => void }).setHex('#10B981');
+		expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+			hex: '#10B981',
+			name: 'TestName'
+		}));
+	});
 });

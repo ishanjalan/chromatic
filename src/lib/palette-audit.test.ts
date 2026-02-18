@@ -357,4 +357,50 @@ describe('runPaletteAudit', () => {
 			}
 		}
 	});
+
+	it('produces critical proximity findings and deducts 15 from score', () => {
+		// Create a palette with two critically close families (< 5° apart)
+		const critPalette = [
+			family('AlmostRed', '#D63941'),
+			family('AlsoRed', '#D33E45'),
+			family('Blue', '#285BF3'),
+		];
+		const audit = runPaletteAudit(critPalette);
+		const critProx = audit.proximityWarnings.filter((w) => w.severity === 'critical');
+		expect(critProx.length).toBeGreaterThan(0);
+		expect(audit.scoreBreakdown.proximity).toBeLessThanOrEqual(-15);
+
+		const proxFindings = audit.findings.filter((f) => f.type === 'proximity');
+		expect(proxFindings.length).toBe(audit.proximityWarnings.length);
+	});
+
+	it('exercises reverse shift direction when first family name sorts after second', () => {
+		const close = [
+			{ name: 'Zed', hex300: '#D63941', oklch: { L: 0.5, C: 0.15, H: 0 } },
+			{ name: 'Alpha', hex300: '#007B28', oklch: { L: 0.5, C: 0.15, H: 8 } },
+			{ name: 'Mid', hex300: '#285BF3', oklch: { L: 0.5, C: 0.15, H: 180 } },
+		];
+		const warnings = analyseProximity(close);
+		const pair = warnings.find(
+			(w) => (w.familyA === 'Zed' && w.familyB === 'Alpha') || (w.familyA === 'Alpha' && w.familyB === 'Zed')
+		);
+		expect(pair).toBeDefined();
+		expect(pair!.suggestedAction).toBe('shift');
+		expect(pair!.shiftTarget).toBe('Zed');
+	});
+
+	it('adds capacity finding when palette has MAX_PALETTE_SIZE families', () => {
+		const bigPalette = Array.from({ length: 24 }, (_, i) => {
+			const hue = (i * 15) % 360;
+			const rad = (hue * Math.PI) / 180;
+			const r = Math.round(128 + 80 * Math.cos(rad));
+			const g = Math.round(128 + 80 * Math.cos(rad - 2.094));
+			const b = Math.round(128 + 80 * Math.cos(rad + 2.094));
+			const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+			return family(`Color${i}`, hex);
+		});
+		const audit = runPaletteAudit(bigPalette);
+		const capacityFinding = audit.findings.find((f) => f.message.includes('at capacity'));
+		expect(capacityFinding).toBeDefined();
+	});
 });

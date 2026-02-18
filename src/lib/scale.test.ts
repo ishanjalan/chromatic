@@ -173,6 +173,24 @@ describe('wcagBadge', () => {
 		const badge = wcagBadge(8, 8);
 		expect(badge.background).toBe('white');
 	});
+
+	it('returns AAA on black when white is below 7', () => {
+		const badge = wcagBadge(4.0, 8.0);
+		expect(badge.level).toBe('aaa');
+		expect(badge.background).toBe('black');
+	});
+
+	it('returns AA on black when white is below 4.5', () => {
+		const badge = wcagBadge(2.5, 5.0);
+		expect(badge.level).toBe('aa');
+		expect(badge.background).toBe('black');
+	});
+
+	it('returns AA Large on black when white is below 3', () => {
+		const badge = wcagBadge(1.5, 3.5);
+		expect(badge.level).toBe('aa-large');
+		expect(badge.background).toBe('black');
+	});
 });
 
 // ── JSON Token Export ───────────────────────────────────────────────
@@ -258,6 +276,14 @@ describe('achromatic / neutral grey input', () => {
 		expect(blackScale.isAchromatic).toBe(true);
 		for (const shade of blackScale.shades) {
 			expect(shade.oklch.C).toBeLessThan(0.001);
+		}
+	});
+
+	it('gamut headroom is valid for achromatic input', () => {
+		const greyScale = generateScale('#808080', 'Grey');
+		for (const shade of greyScale.shades) {
+			expect(shade.gamutHeadroom).toBeGreaterThanOrEqual(0);
+			expect(shade.gamutHeadroom).toBeLessThanOrEqual(1);
 		}
 	});
 });

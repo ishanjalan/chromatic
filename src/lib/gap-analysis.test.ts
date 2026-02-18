@@ -145,6 +145,46 @@ describe('analyseHueGaps', () => {
 		const unique = new Set(nameSourcePairs);
 		expect(unique.size).toBe(nameSourcePairs.length);
 	});
+
+	it('boosts cool candidates for a warm-heavy palette', () => {
+		// Need at least 4 warm+cool dots for balance detection, with warm >= 2× cool
+		const warmPalette = [
+			dot('Red', 10), dot('Orange', 40), dot('Rose', 350), dot('Magenta', 330),
+			dot('Teal', 180)
+		];
+		const stats = computeCoverageStats(warmPalette);
+		expect(stats.balance).toBe('warm-heavy');
+		const suggestions = analyseHueGaps(warmPalette);
+		expect(suggestions.length).toBeGreaterThan(0);
+		// Cool-zone suggestions should exist and have higher balance scores
+		const coolSuggestions = suggestions.filter((s) => s.hue >= 120 && s.hue < 270);
+		const warmSuggestions = suggestions.filter((s) => s.hue < 60 || s.hue >= 300);
+		expect(coolSuggestions.length).toBeGreaterThan(0);
+		if (warmSuggestions.length > 0 && coolSuggestions.length > 0) {
+			const avgCoolBalance = coolSuggestions.reduce((sum, s) => sum + s.balanceScore, 0) / coolSuggestions.length;
+			const avgWarmBalance = warmSuggestions.reduce((sum, s) => sum + s.balanceScore, 0) / warmSuggestions.length;
+			expect(avgCoolBalance).toBeGreaterThan(avgWarmBalance);
+		}
+	});
+
+	it('boosts warm candidates for a cool-heavy palette', () => {
+		const coolPalette = [
+			dot('Blue', 230), dot('Teal', 180), dot('Cyan', 200), dot('Green', 150),
+			dot('Red', 10)
+		];
+		const stats = computeCoverageStats(coolPalette);
+		expect(stats.balance).toBe('cool-heavy');
+		const suggestions = analyseHueGaps(coolPalette);
+		expect(suggestions.length).toBeGreaterThan(0);
+		const warmSuggestions = suggestions.filter((s) => s.hue < 60 || s.hue >= 300);
+		const coolSuggestions = suggestions.filter((s) => s.hue >= 120 && s.hue < 270);
+		expect(warmSuggestions.length).toBeGreaterThan(0);
+		if (warmSuggestions.length > 0 && coolSuggestions.length > 0) {
+			const avgWarmBalance = warmSuggestions.reduce((sum, s) => sum + s.balanceScore, 0) / warmSuggestions.length;
+			const avgCoolBalance = coolSuggestions.reduce((sum, s) => sum + s.balanceScore, 0) / coolSuggestions.length;
+			expect(avgWarmBalance).toBeGreaterThan(avgCoolBalance);
+		}
+	});
 });
 
 describe('suggestionsToHueDots', () => {

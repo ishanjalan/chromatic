@@ -56,6 +56,18 @@ describe('parseTokenJson', () => {
 		expect(result.errors).toContain('Invalid JSON — could not parse the input.');
 	});
 
+	it('handles array at top level', () => {
+		const result = parseTokenJson('[1, 2, 3]');
+		expect(result.families).toHaveLength(0);
+		expect(result.errors.some((e) => e.includes('JSON object'))).toBe(true);
+	});
+
+	it('handles Colour wrapper pointing to non-object', () => {
+		const result = parseTokenJson('{"Colour": "not-object"}');
+		expect(result.families).toHaveLength(0);
+		expect(result.errors.some((e) => e.includes('colour data'))).toBe(true);
+	});
+
 	it('handles flat structure without Colour wrapper', () => {
 		const flat: Record<string, object> = {};
 		for (const [level, hex] of Object.entries(FULL_SHADES)) {
@@ -221,6 +233,67 @@ describe('alpha family parsing', () => {
 		expect(alphaFam!.isAlpha).toBe(true);
 		expect(alphaFam!.shadeCount).toBe(3);
 		expect(alphaFam!.shades[100]).toBe('#1A1A1A33');
+	});
+
+	it('parses nested chromatic sub-families (e.g. Blue/Vivid)', () => {
+		const makeColorEntry = (hex: string) => ({
+			$type: 'color',
+			$value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex }
+		});
+		const json = JSON.stringify({
+			Colour: {
+				Blue: {
+					'50': makeColorEntry('#EFF6FF'),
+					'100': makeColorEntry('#DBEAFE'),
+					'200': makeColorEntry('#BFDBFE'),
+					'300': makeColorEntry('#3B82F6'),
+					'400': makeColorEntry('#1D4ED8'),
+					'500': makeColorEntry('#1E3A5F'),
+					Vivid: {
+						'50': makeColorEntry('#E0F2FE'),
+						'100': makeColorEntry('#BAE6FD'),
+						'200': makeColorEntry('#7DD3FC'),
+						'300': makeColorEntry('#38BDF8'),
+						'400': makeColorEntry('#0EA5E9'),
+						'500': makeColorEntry('#0284C7'),
+					}
+				}
+			}
+		});
+		const result = parseTokenJson(json);
+		const mainBlue = result.families.find((f) => f.name === 'Blue');
+		const vividBlue = result.families.find((f) => f.name === 'Blue Vivid');
+		expect(mainBlue).toBeDefined();
+		expect(vividBlue).toBeDefined();
+		expect(vividBlue!.complete).toBe(true);
+	});
+
+	it('reports errors for incomplete nested chromatic sub-families', () => {
+		const makeColorEntry = (hex: string) => ({
+			$type: 'color',
+			$value: { colorSpace: 'srgb', components: [0, 0, 0], alpha: 1, hex }
+		});
+		const json = JSON.stringify({
+			Colour: {
+				Red: {
+					'50': makeColorEntry('#FEF2F2'),
+					'100': makeColorEntry('#FEE2E2'),
+					'200': makeColorEntry('#FECACA'),
+					'300': makeColorEntry('#EF4444'),
+					'400': makeColorEntry('#B91C1C'),
+					'500': makeColorEntry('#7F1D1D'),
+					Dark: {
+						'300': makeColorEntry('#DC2626'),
+						'500': makeColorEntry('#991B1B'),
+					}
+				}
+			}
+		});
+		const result = parseTokenJson(json);
+		const darkRed = result.families.find((f) => f.name === 'Red Dark');
+		expect(darkRed).toBeDefined();
+		expect(darkRed!.complete).toBe(false);
+		expect(result.errors.some((e) => e.includes('Red Dark') && e.includes('missing shades'))).toBe(true);
 	});
 
 	it('does not duplicate parent family shades into nested sub-family', () => {
