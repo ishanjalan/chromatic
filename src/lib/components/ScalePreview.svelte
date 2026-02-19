@@ -10,8 +10,8 @@
 
 	const GREY_750 = '#1D1D1D';
 	const GREY_750_69 = 'rgba(29, 29, 29, 0.69)';
-	const GREY_50 = '#FDFDFD';
-	const GREY_50_72 = 'rgba(253, 253, 253, 0.72)';
+	const GREY_50 = '#F4F4F4';
+	const GREY_50_72 = 'rgba(244, 244, 244, 0.72)';
 
 	let s50 = $derived(scale.shades[0]?.hex ?? '#F5F5F5');
 	let s100 = $derived(scale.shades[1]?.hex ?? '#E5E5E5');

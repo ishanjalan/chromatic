@@ -49,7 +49,7 @@ export const SHADE_HEADROOM: Record<number, number> = {
 // ── Derive L targets from APCA floor + headroom ────────────────────
 
 const GREY_750_RGB = { r: 0.1137, g: 0.1137, b: 0.1137 };
-const GREY_50_RGB  = { r: 0.9922, g: 0.9922, b: 0.9922 };
+const GREY_50_RGB  = { r: 0.9569, g: 0.9569, b: 0.9569 };
 
 const lightFloor = solveLForApca(
 	GREY_750_RGB.r, GREY_750_RGB.g, GREY_750_RGB.b,
@@ -208,7 +208,7 @@ export const SHADE_ROLES: Record<number, { light: string; dark: string }> = {
  * Light mode uses Grey/750 (#1D1D1D) as the base text colour,
  * with alpha variants for secondary (69%) and tertiary (62%).
  *
- * Dark mode uses Grey/50 (#FDFDFD) as the base text colour,
+ * Dark mode uses Grey/50 (#F4F4F4) as the base text colour,
  * with alpha variants for secondary (72%) and tertiary (64%).
  */
 export interface TextLevel {

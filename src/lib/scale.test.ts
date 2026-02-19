@@ -102,16 +102,16 @@ describe('generateScale lightness normalisation', () => {
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
 		// L is TARGET_CURVE[300].L minus small H-K chroma compensation
-		expect(s300.oklch.L).toBeGreaterThan(0.52);
-		expect(s300.oklch.L).toBeLessThan(0.54);
+		expect(s300.oklch.L).toBeGreaterThan(0.48);
+		expect(s300.oklch.L).toBeLessThan(0.50);
 	});
 
 	it('normalises very dark input to TARGET_CURVE L (with H-K)', () => {
 		const scale = generateScale('#1A0033', 'VeryDark');
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
-		expect(s300.oklch.L).toBeGreaterThan(0.52);
-		expect(s300.oklch.L).toBeLessThan(0.54);
+		expect(s300.oklch.L).toBeGreaterThan(0.48);
+		expect(s300.oklch.L).toBeLessThan(0.50);
 	});
 
 	it('all shades use approximate TARGET_CURVE L regardless of input', () => {

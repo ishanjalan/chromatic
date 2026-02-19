@@ -100,8 +100,8 @@ describe('APCA-derived L targets', () => {
 
 	it('derived L values land close to historically validated values', () => {
 		const expected: Record<number, number> = {
-			50: 0.94, 100: 0.88, 200: 0.80,
-			300: 0.54, 400: 0.36, 500: 0.28,
+			50: 0.91, 100: 0.88, 200: 0.80,
+			300: 0.49, 400: 0.31, 500: 0.23,
 		};
 		for (const shade of SHADE_LEVELS) {
 			expect(TARGET_CURVE[shade].L).toBeCloseTo(expected[shade], 1);

@@ -229,11 +229,11 @@ describe('computeShade300Tweaks', () => {
 	});
 
 	it('returns no tweaks when L is within tolerance of optimal target', () => {
-		// L = 0.56 is within 0.06 of TARGET_CURVE[300].L (0.5387)
+		// L = 0.51 is within 0.06 of TARGET_CURVE[300].L (~0.492)
 		const good = {
 			name: 'Good',
 			hex300: '#285BF3',
-			oklch: { L: 0.56, C: 0.17, H: 264 }
+			oklch: { L: 0.51, C: 0.17, H: 264 }
 		};
 
 		// Single family = median chroma, so no chroma flag
