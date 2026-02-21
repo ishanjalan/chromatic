@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <!-- CSS -->
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" stroke="url(#g)" stroke-width="2" stroke-linecap="round"/>
+          <defs><linearGradient id="g" x1="2" y1="2" x2="12" y2="22"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#f472b6"/></linearGradient></defs>
+        </svg>
+        <h1>Chromatic Sync</h1>
+      </div>
+      <p class="subtitle">Extract colour variables and send to Chromatic for analysis</p>
+    </header>
+
+    <div class="stats" id="stats" style="display:none">
+      <div class="stat-row">
+        <span class="stat-label">Collections</span>
+        <span class="stat-value" id="stat-collections">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Colours</span>
+        <span class="stat-value" id="stat-colors">0</span>
+      </div>
+      <div class="stat-row" id="stat-semantic-row" style="display:none">
+        <span class="stat-label">Semantic tokens</span>
+        <span class="stat-value" id="stat-semantic">Yes</span>
+      </div>
+    </div>
+
+    <div class="url-section">
+      <label for="url-input">Chromatic URL</label>
+      <div class="url-row">
+        <input
+          type="url"
+          id="url-input"
+          placeholder="https://chromatic-six.vercel.app"
+          spellcheck="false"
+        />
+        <span class="url-status" id="url-status"></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btn-sync" class="btn btn-primary" disabled>
+        <span class="btn-text">Sync to Chromatic</span>
+      </button>
+      <button id="btn-download" class="btn btn-secondary" disabled>
+        Download JSON
+      </button>
+    </div>
+
+    <div class="status" id="status">Loading…</div>
+    <p class="timestamp" id="timestamp"></p>
+
+    <button id="btn-refresh" class="btn-icon" title="Re-extract">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 104.546 2.914.75.75 0 011.36-.636A6.5 6.5 0 111.932 5.5H.75a.75.75 0 010-1.5h3.5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0V6.153A5.019 5.019 0 008 3z"/></svg>
+    </button>
+  </div>
+  <!-- JS -->
+</body>
+</html>

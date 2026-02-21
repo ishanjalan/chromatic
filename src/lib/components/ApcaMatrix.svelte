@@ -15,6 +15,7 @@
 	import { hexToRgb, apcaContrast, relativeLuminance } from '$lib/colour';
 	import { SHADE_LEVELS, SHADE_ACTIVE_TEXT } from '$lib/constants';
 	import type { ParsedFamily } from '$lib/parse-tokens';
+	import { fontSummary } from '$lib/apca-font-lookup';
 
 	let {
 		families,
@@ -38,6 +39,8 @@
 		pass: boolean;
 		marginal: boolean;
 		textColor: string;
+		fontRegular: number | null;
+		fontBold: number | null;
 	}
 
 	interface FamilyColumn {
@@ -56,12 +59,15 @@
 		const lc = Math.abs(apcaContrast(textToken.r, textToken.g, textToken.b, r, g, b));
 		const lum = relativeLuminance(r, g, b);
 		const textColor = lum > 0.18 ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)';
+		const fonts = fontSummary(lc);
 		return {
 			hex,
 			lc,
 			pass: lc >= 60,
 			marginal: lc >= 45 && lc < 60,
-			textColor
+			textColor,
+			fontRegular: fonts.regular,
+			fontBold: fonts.bold,
 		};
 	}
 
@@ -239,20 +245,26 @@
 							{@const cell = col.cells.get(shade)}
 							{#if cell}
 								<td class="px-1 py-1">
-									<div
-										class="relative flex flex-col items-center justify-center rounded-md px-1 py-1.5"
-										style="background: {cell.hex}; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1.5px {cell.pass ? 'rgba(16,185,129,0.3)' : cell.marginal ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.35)'};"
-										title="{col.name}/{shade}: Lc {cell.lc.toFixed(1)} ({cell.pass ? 'Pass' : cell.marginal ? 'Marginal' : 'Fail'}) — tested against {textToken === 'grey750' ? 'Grey 750 (#1D1D1D)' : 'Grey 50 (#FFFFFF)'}"
-									>
+								<div
+									class="relative flex flex-col items-center justify-center rounded-md px-1 py-1.5"
+									style="background: {cell.hex}; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1.5px {cell.pass ? 'rgba(16,185,129,0.3)' : cell.marginal ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.35)'};"
+									title="{col.name}/{shade}: Lc {cell.lc.toFixed(1)} ({cell.pass ? 'Pass' : cell.marginal ? 'Marginal' : 'Fail'}) — {textToken === 'grey750' ? 'vs Grey 750' : 'vs Grey 50'}{cell.fontRegular ? ` · Min font: ${cell.fontRegular}px @400, ${cell.fontBold ?? '—'}px @700` : ''}"
+								>
+									<span
+										class="font-mono text-[11px] font-700 leading-tight"
+										style="color: {cell.textColor}"
+									>{Math.round(cell.lc)}</span>
+									<span
+										class="font-mono text-[8px] font-500 leading-tight"
+										style="color: {cell.textColor}; opacity: 0.6"
+									>{cell.pass ? 'pass' : cell.marginal ? 'marg' : 'fail'}</span>
+									{#if cell.fontBold}
 										<span
-											class="font-mono text-[11px] font-700 leading-tight"
-											style="color: {cell.textColor}"
-										>{Math.round(cell.lc)}</span>
-										<span
-											class="font-mono text-[8px] font-500 leading-tight"
-											style="color: {cell.textColor}; opacity: 0.6"
-										>{cell.pass ? 'pass' : cell.marginal ? 'marg' : 'fail'}</span>
-									</div>
+											class="font-mono text-[7px] font-500 leading-tight mt-px"
+											style="color: {cell.textColor}; opacity: 0.45"
+										>{cell.fontBold}px</span>
+									{/if}
+								</div>
 								</td>
 							{:else}
 								<td class="px-1 py-1">
@@ -294,7 +306,7 @@
 	<!-- Legend -->
 	<div class="flex items-center gap-4 px-5 py-2.5" style="border-top: 1px solid var(--border-subtle)">
 		<span class="font-body text-[10px]" style="color: var(--text-ghost)">
-			Lc values tested against the active text token per shade (Grey 750 for light fills, Grey 50 for dark fills)
+			Lc tested against active text token · small number = min bold (700) font size in px · hover for details
 		</span>
 		<div class="flex items-center gap-3 ml-auto shrink-0">
 			<div class="flex items-center gap-1">

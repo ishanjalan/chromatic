@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { generateScale } from '$lib/scale';
 	import type { ScaleResult } from '$lib/scale';
 	import { isValidHex, hexToRgb, rgbToOklch } from '$lib/colour';
@@ -49,6 +49,18 @@
 	let comparisonJsonInput = $state('');
 	let isDragging = $state(false);
 	let legendDismissed = $state(false);
+	let figmaSyncLoading = $state(false);
+	let figmaSyncError = $state('');
+	interface FigmaSyncPayload {
+		receivedAt: string;
+		colorCount: number;
+		primitives: Record<string, unknown>;
+		lightSemantic: Record<string, unknown>;
+		darkSemantic: Record<string, unknown>;
+	}
+	let figmaPendingSync = $state<FigmaSyncPayload | null>(null);
+	let figmaLastImportedAt = $state<string | null>(null);
+	let figmaPollTimer: ReturnType<typeof setInterval> | null = null;
 
 	// Semantic token coverage state
 	let semanticResults = $state<SemanticParseResult[]>([]);
@@ -433,6 +445,177 @@
 		}
 	}
 
+	/**
+	 * Reconstruct a primitives-format JSON from alias data inside semantic tokens.
+	 * When the Figma file doesn't produce a separate primitives collection,
+	 * we extract unique (family, shade) → hex pairs from the resolved alias targets.
+	 */
+	function rebuildPrimitivesFromAliases(semantic: Record<string, unknown>): Record<string, unknown> {
+		const families: Record<string, Record<string, unknown>> = {};
+
+		function walk(obj: unknown) {
+			if (typeof obj !== 'object' || obj === null) return;
+			const o = obj as Record<string, unknown>;
+			if (o.$type === 'color' && typeof o.$extensions === 'object' && o.$extensions !== null) {
+				const ext = o.$extensions as Record<string, unknown>;
+				const alias = ext['com.figma.aliasData'] as Record<string, unknown> | undefined;
+				const val = o.$value as Record<string, unknown> | undefined;
+				if (alias && val) {
+					const targetName = alias.targetVariableName as string | undefined;
+					const hex = val.hex as string | undefined;
+					if (targetName && hex) {
+						const parts = targetName.split('/');
+						// Expect patterns like "Colour/Red/50" or "Red/50"
+						const shadeStr = parts[parts.length - 1];
+						if (/^\d+(_\d+)?$/.test(shadeStr)) {
+							const familyName = parts.length >= 3
+								? parts.slice(parts.length - 2, parts.length - 1).join(' ')
+								: parts.slice(0, parts.length - 1).join(' ');
+							if (familyName) {
+								if (!families[familyName]) families[familyName] = {};
+								const cleanShade = shadeStr.split('_')[0];
+								if (!families[familyName][cleanShade]) {
+									families[familyName][cleanShade] = {
+										$type: 'color',
+										$value: { hex: hex.toUpperCase() }
+									};
+								}
+							}
+						}
+					}
+				}
+				return;
+			}
+			for (const [key, val] of Object.entries(o)) {
+				if (key.startsWith('$')) continue;
+				walk(val);
+			}
+		}
+
+		walk(semantic);
+		return families;
+	}
+
+	async function handleFigmaSync() {
+		figmaSyncLoading = true;
+		figmaSyncError = '';
+		try {
+			// Use cached data from polling when available; fetch fresh only as fallback
+			let prims: Record<string, unknown>;
+			let light: Record<string, unknown>;
+			let dark: Record<string, unknown>;
+			let receivedAt: string;
+
+			if (figmaPendingSync) {
+				prims = figmaPendingSync.primitives;
+				light = figmaPendingSync.lightSemantic;
+				dark = figmaPendingSync.darkSemantic;
+				receivedAt = figmaPendingSync.receivedAt;
+			} else {
+				const res = await fetch('/api/figma/sync');
+				const data = await res.json();
+				if (!data.available) {
+					figmaSyncError = 'No synced data found. Open the Chromatic Sync plugin in Figma first.';
+					return;
+				}
+				prims = data.primitives ?? {};
+				light = data.lightSemantic ?? {};
+				dark = data.darkSemantic ?? {};
+				receivedAt = data.receivedAt;
+			}
+
+			let hasPrimitives = Object.keys(prims).length > 0;
+
+			if (hasPrimitives) {
+				processUploadedFile(JSON.stringify(prims, null, 2), 'Figma-Primitives.json');
+			}
+
+			if (Object.keys(light).length > 0) {
+				if (!hasPrimitives) {
+					const rebuilt = rebuildPrimitivesFromAliases(light);
+					if (Object.keys(rebuilt).length > 0) {
+						processUploadedFile(JSON.stringify(rebuilt, null, 2), 'Figma-Primitives.json');
+						hasPrimitives = true;
+					}
+				}
+				processUploadedFile(JSON.stringify(light, null, 2), 'Figma-Light.json');
+			}
+			if (Object.keys(dark).length > 0) {
+				processUploadedFile(JSON.stringify(dark, null, 2), 'Figma-Dark.json');
+			}
+
+			if (!hasPrimitives) {
+				figmaSyncError = 'Synced data contained no colour primitives. Check that your Figma file has colour variables.';
+			}
+
+			figmaLastImportedAt = receivedAt;
+			figmaPendingSync = null;
+		} catch (err) {
+			figmaSyncError = err instanceof Error ? err.message : 'Failed to fetch from sync endpoint';
+		} finally {
+			figmaSyncLoading = false;
+		}
+	}
+
+	function countTokenColors(obj: Record<string, unknown>, depth = 0): number {
+		if (depth > 10) return 0;
+		let count = 0;
+		for (const val of Object.values(obj)) {
+			if (val && typeof val === 'object') {
+				const v = val as Record<string, unknown>;
+				if (v.$type === 'color') count++;
+				else count += countTokenColors(v, depth + 1);
+			}
+		}
+		return count;
+	}
+
+	async function pollFigmaSync() {
+		try {
+			const res = await fetch('/api/figma/sync');
+			const data = await res.json();
+			if (!data.available) return;
+			if (data.receivedAt === figmaLastImportedAt) return;
+			if (figmaPendingSync?.receivedAt === data.receivedAt) return;
+
+			const prims = data.primitives ?? {};
+			const light = data.lightSemantic ?? {};
+			const dark = data.darkSemantic ?? {};
+			let colorCount = countTokenColors(prims);
+			if (colorCount === 0) colorCount = countTokenColors(light);
+
+			figmaPendingSync = {
+				receivedAt: data.receivedAt,
+				colorCount,
+				primitives: prims,
+				lightSemantic: light,
+				darkSemantic: dark,
+			};
+		} catch {
+			// silent — polling failure is not user-facing
+		}
+	}
+
+	function startFigmaPolling() {
+		if (figmaPollTimer) return;
+		pollFigmaSync();
+		figmaPollTimer = setInterval(pollFigmaSync, 3000);
+	}
+
+	function stopFigmaPolling() {
+		if (figmaPollTimer) {
+			clearInterval(figmaPollTimer);
+			figmaPollTimer = null;
+		}
+	}
+
+	function dismissFigmaBanner() {
+		if (figmaPendingSync) {
+			figmaLastImportedAt = figmaPendingSync.receivedAt;
+		}
+		figmaPendingSync = null;
+	}
+
 	function clearComparison() {
 		comparisonJsonInput = '';
 		comparisonFamilies = [];
@@ -482,6 +665,27 @@
 		legendDismissed = loadLegendDismissed();
 
 		loadFromUrl();
+
+		startFigmaPolling();
+
+		function handleVisibility() {
+			if (document.visibilityState === 'visible') {
+				pollFigmaSync();
+				startFigmaPolling();
+			} else {
+				stopFigmaPolling();
+			}
+		}
+		document.addEventListener('visibilitychange', handleVisibility);
+
+		return () => {
+			stopFigmaPolling();
+			document.removeEventListener('visibilitychange', handleVisibility);
+		};
+	});
+
+	onDestroy(() => {
+		stopFigmaPolling();
 	});
 </script>
 
@@ -559,6 +763,73 @@
 	</header>
 
 	<main class="max-w-[1600px] mx-auto px-6 lg:px-10 py-8">
+
+		<!-- Figma sync notification banner -->
+		{#if figmaPendingSync || figmaSyncError}
+			<div
+				class="mb-6 rounded-xl px-5 py-4 flex items-center gap-4 flex-wrap fade-in"
+				style="background: {figmaSyncError
+					? 'linear-gradient(135deg, rgba(245,158,11,0.08), rgba(239,68,68,0.06))'
+					: 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.08))'};
+					border: 1px solid {figmaSyncError ? 'rgba(245,158,11,0.25)' : 'rgba(99,102,241,0.25)'}"
+			>
+				<div class="flex items-center gap-3 flex-1 min-w-0">
+					<div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style="background: {figmaSyncError ? 'rgba(245,158,11,0.15)' : 'rgba(99,102,241,0.15)'}">
+						{#if figmaSyncError}
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(245,158,11,0.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+							</svg>
+						{:else}
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(129,140,248,0.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/>
+								<path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/>
+								<path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/>
+								<path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/>
+								<path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/>
+							</svg>
+						{/if}
+					</div>
+					<div>
+						{#if figmaSyncError}
+							<p class="font-body text-[14px] font-600" style="color: rgba(245,158,11,0.9)">
+								Import issue
+							</p>
+							<p class="font-body text-[12px] mt-0.5" style="color: var(--text-tertiary)">
+								{figmaSyncError}
+							</p>
+						{:else if figmaPendingSync}
+							<p class="font-body text-[14px] font-600" style="color: var(--text-primary)">
+								Figma tokens ready to import
+							</p>
+							<p class="font-body text-[12px] mt-0.5" style="color: var(--text-tertiary)">
+								{figmaPendingSync.colorCount} colour{figmaPendingSync.colorCount !== 1 ? 's' : ''} synced from the Chromatic plugin
+								· {new Date(figmaPendingSync.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+							</p>
+						{/if}
+					</div>
+				</div>
+				<div class="flex items-center gap-2 shrink-0">
+					{#if figmaPendingSync}
+						<button
+							onclick={handleFigmaSync}
+							disabled={figmaSyncLoading}
+							class="font-body text-[13px] font-600 px-5 py-2 rounded-lg cursor-pointer transition-all duration-200 hover:brightness-110"
+							style="background: rgba(99,102,241,0.85); color: white"
+						>
+							{figmaSyncLoading ? 'Importing…' : 'Import Tokens'}
+						</button>
+					{/if}
+					<button
+						onclick={() => { dismissFigmaBanner(); figmaSyncError = ''; }}
+						class="font-body text-[12px] px-2.5 py-2 rounded-lg cursor-pointer transition-all hover:opacity-70"
+						style="color: var(--text-ghost)"
+						title="Dismiss"
+					>
+						✕
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		{#if !currentScale && allFamilies.length === 0}
 			<!-- Two-lane onboarding: shown when there's no data at all -->
@@ -1023,13 +1294,36 @@
 							class="w-full h-24 px-4 py-3 rounded-xl font-mono text-[12px] resize-y transition-all focus-visible:ring-1 focus-visible:ring-white/20"
 							style="background: var(--surface-2); border: 1px solid var(--border-subtle); color: var(--text-primary); outline: none;"
 						></textarea>
-						<button
-							onclick={handleComparisonParse}
-							class="cta-glow font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer"
-							style="background: {accentColor}; color: white; --cta-glow-color: {accentColor}40"
-						>
-							Analyse Tokens
-						</button>
+						<div class="flex items-center gap-3">
+							<button
+								onclick={handleComparisonParse}
+								class="cta-glow font-body text-[13px] font-500 px-5 py-2.5 rounded-xl cursor-pointer"
+								style="background: {accentColor}; color: white; --cta-glow-color: {accentColor}40"
+							>
+								Analyse Tokens
+							</button>
+							<span class="font-body text-[11px]" style="color: var(--text-ghost)">or</span>
+							<button
+								onclick={handleFigmaSync}
+								disabled={figmaSyncLoading}
+								class="font-body text-[13px] font-500 px-4 py-2.5 rounded-xl cursor-pointer flex items-center gap-2 transition-all duration-200 hover:opacity-80"
+								style="background: rgba(99,102,241,0.10); color: rgba(129,140,248,0.9); border: 1px solid rgba(99,102,241,0.15)"
+							>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/>
+									<path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/>
+									<path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/>
+									<path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/>
+									<path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/>
+								</svg>
+								{figmaSyncLoading ? 'Syncing…' : 'Sync from Figma'}
+							</button>
+						</div>
+						{#if figmaSyncError}
+							<p class="font-body text-[12px] px-3 py-2 rounded-lg" style="background: rgba(245,158,11,0.08); color: rgba(245,158,11,0.85)">
+								{figmaSyncError}
+							</p>
+						{/if}
 					</div>
 				</div>
 			{:else}
