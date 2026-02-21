@@ -135,6 +135,75 @@ export function maxChromaAtLH(L: number, H: number): number {
 	return lo;
 }
 
+/**
+ * Find the Oklch lightness where the sRGB gamut is widest for a given hue.
+ * This "cusp" lightness is a fundamental property of the gamut shape and
+ * drives adaptive chroma compression: shades near the cusp have excess
+ * gamut and need more compression; shades far from it can use more freely.
+ */
+export function cuspLightness(H: number): number {
+	let bestL = 0.5;
+	let bestC = 0;
+	for (let l10 = 10; l10 < 95; l10++) {
+		const l = l10 / 100;
+		const c = maxChromaAtLH(l, H);
+		if (c > bestC) {
+			bestC = c;
+			bestL = l;
+		}
+	}
+	return bestL;
+}
+
+/**
+ * Cusp-aware gamut damping. Modulates the compression factor based on
+ * how close the target lightness is to the gamut cusp for this hue:
+ *
+ *   damping = clamp(base + coeff × |L − cuspL(H)|, 0.1, 1.0)
+ *
+ * Near the cusp (small distance): damping is lower → more compression,
+ * restraining wide-gamut hues that would otherwise look neon.
+ *
+ * Far from the cusp (large distance): damping approaches 1.0 → less
+ * compression, using more of the available (already narrow) gamut.
+ *
+ * This replaces a flat GAMUT_DAMPING constant with a geometry-derived
+ * value that adapts per-hue without any per-hue magic numbers.
+ */
+export function adaptiveDamping(
+	L: number,
+	H: number,
+	base: number,
+	coeff: number,
+): number {
+	const cuspL = cuspLightness(H);
+	const dist = Math.abs(L - cuspL);
+	return Math.max(0.1, Math.min(1.0, base + coeff * dist));
+}
+
+/**
+ * Gamut-width–normalised maximum chroma with cusp-aware adaptive damping.
+ *
+ * Wide-gamut hues (where maxC exceeds the reference hue's maxC) are
+ * compressed toward the reference. The compression strength adapts based
+ * on how close the target lightness is to the gamut cusp for this hue.
+ *
+ * Parameters are passed explicitly to avoid a circular dependency on constants.
+ */
+export function effectiveMaxChroma(
+	L: number,
+	H: number,
+	referenceHue: number,
+	dampingBase: number,
+	dampingCoeff: number,
+): number {
+	const hueMaxC = maxChromaAtLH(L, H);
+	const refMaxC = maxChromaAtLH(L, referenceHue);
+	if (hueMaxC <= refMaxC) return hueMaxC;
+	const damping = adaptiveDamping(L, H, dampingBase, dampingCoeff);
+	return refMaxC + (hueMaxC - refMaxC) * damping;
+}
+
 // ── Hex utilities ───────────────────────────────────────────────────
 
 export function hexToRgb(hex: string): RgbColor {

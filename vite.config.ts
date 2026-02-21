@@ -7,6 +7,9 @@ export default defineConfig({
 	resolve: {
 		conditions: ['browser']
 	},
+	server: {
+		port: 5173
+	},
 	test: {
 		include: ['src/**/*.test.ts'],
 		environment: 'jsdom',

@@ -27,7 +27,7 @@
 	} = $props();
 
 	const G750 = { r: 0.1137, g: 0.1137, b: 0.1137 };
-	const G50 = { r: 0.9569, g: 0.9569, b: 0.9569 };
+	const G50 = { r: 1.0, g: 1.0, b: 1.0 };
 
 	type ViewMode = 'proposed' | 'existing';
 	let viewMode = $state<ViewMode>('proposed');
@@ -242,7 +242,7 @@
 									<div
 										class="relative flex flex-col items-center justify-center rounded-md px-1 py-1.5"
 										style="background: {cell.hex}; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 1.5px {cell.pass ? 'rgba(16,185,129,0.3)' : cell.marginal ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.35)'};"
-										title="{col.name}/{shade}: Lc {cell.lc.toFixed(1)} ({cell.pass ? 'Pass' : cell.marginal ? 'Marginal' : 'Fail'}) — tested against {textToken === 'grey750' ? 'Grey 750 (#1D1D1D)' : 'Grey 50 (#F4F4F4)'}"
+										title="{col.name}/{shade}: Lc {cell.lc.toFixed(1)} ({cell.pass ? 'Pass' : cell.marginal ? 'Marginal' : 'Fail'}) — tested against {textToken === 'grey750' ? 'Grey 750 (#1D1D1D)' : 'Grey 50 (#FFFFFF)'}"
 									>
 										<span
 											class="font-mono text-[11px] font-700 leading-tight"

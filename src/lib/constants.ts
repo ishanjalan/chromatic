@@ -38,8 +38,8 @@ export const APCA_TARGET_LC_200 = 60;
  * Smaller headroom → tighter to the floor, more vivid.
  */
 export const SHADE_HEADROOM: Record<number, number> = {
-	50:  0.065,   // tertiary: reduced from 0.092 to open ~2× more chroma gamut
-	100: 0.035,   // secondary: reduced from 0.040 for slightly more gamut
+	50:  0.075,   // tertiary: lighter whisper tint, widens L gap to shade 100
+	100: 0.025,   // secondary: slightly darker for better separation from 50
 	200: 0.040,   // mid-fill: compensates for chroma's H-K impact on APCA
 	300: 0.033,   // anchor: slight push below floor for headroom
 	400: 0.216,   // secondary (dark): deep enough to separate from 300
@@ -49,7 +49,7 @@ export const SHADE_HEADROOM: Record<number, number> = {
 // ── Derive L targets from APCA floor + headroom ────────────────────
 
 const GREY_750_RGB = { r: 0.1137, g: 0.1137, b: 0.1137 };
-const GREY_50_RGB  = { r: 0.9569, g: 0.9569, b: 0.9569 };
+const GREY_50_RGB  = { r: 1.0, g: 1.0, b: 1.0 };
 
 const lightFloor = solveLForApca(
 	GREY_750_RGB.r, GREY_750_RGB.g, GREY_750_RGB.b,
@@ -73,9 +73,9 @@ export const BASE_RELC = 0.50;
 export const RELC_STEP = 0.20;
 
 const SHADE_RELC_RANK: Record<number, number> = {
-	50: 0, 100: 1, 200: 2,
+	50: 0.25, 100: 1.25, 200: 2,
 	300: -1,  // sentinel — user's input chroma used
-	400: 1, 500: 0,
+	400: 1.5, 500: 1.0,  // asymmetric boost for dark fills
 };
 
 function shadeRelC(shade: number): number {
@@ -142,27 +142,32 @@ export const ANCHOR_REF_CHROMA = 0.1729;
 export const HK_COEFF = 0.04;
 
 /**
- * Maximum absolute Oklch chroma per shade.
+ * Reference hue for gamut-width normalization (Oklch degrees).
  *
- * The sRGB gamut varies ~4× by hue at high lightness: green/yellow can
- * reach C ≈ 0.19 while blue/purple max out at C ≈ 0.04. A uniform relC
- * therefore produces visually unbalanced results — wide-gamut hues
- * overpower narrow ones.
- *
- * The cap lets cool hues use their full relC allocation (they're naturally
- * below it) while restraining warm/green hues. Calibrated from Tailwind
- * v4 and Radix Colors, where the max chroma at shade 50 is ~0.031 and
- * at shade 100 is ~0.071.
- *
- * Only the lightest fills need caps — dark fills (400, 500) have narrow
- * gamut at low lightness so the cap isn't needed. Shade 200 at L ≈ 0.80
- * has wide gamut, but high chroma is intentional for the Primary fill.
- * Shade 300 uses the user's input chroma directly.
+ * Blue (~264°) has the narrowest sRGB gamut at high lightness, making it
+ * a natural "floor." Wide-gamut hues (green, yellow) are compressed
+ * toward blue's gamut width so all hues appear equally saturated at a
+ * given relC, without per-hue magic numbers.
  */
-export const CHROMA_CAP: Partial<Record<number, number>> = {
-	50:  0.04,
-	100: 0.08,
-};
+export const REFERENCE_HUE = 264;
+
+/**
+ * Cusp-aware gamut damping constants.
+ *
+ * Instead of a flat damping factor, compression adapts to the sRGB gamut
+ * shape. The damping for each (L, H) pair is:
+ *
+ *   damping = clamp(BASE + COEFF × |L − cuspL(H)|, 0.1, 1.0)
+ *
+ * Where cuspL(H) is the lightness at which the sRGB gamut is widest for
+ * hue H. Near the cusp the gamut is wide → lower damping compresses more.
+ * Far from the cusp the gamut is narrow → higher damping preserves chroma.
+ *
+ * Calibrated against Tailwind/Radix/Spectrum shade-by-shade chroma
+ * comparisons (grid-searched over 7 TW shade levels, 17 hues).
+ */
+export const CUSP_DAMPING_BASE = 0.70;
+export const CUSP_DAMPING_COEFF = 2.0;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 
@@ -208,7 +213,7 @@ export const SHADE_ROLES: Record<number, { light: string; dark: string }> = {
  * Light mode uses Grey/750 (#1D1D1D) as the base text colour,
  * with alpha variants for secondary (69%) and tertiary (62%).
  *
- * Dark mode uses Grey/50 (#F4F4F4) as the base text colour,
+ * Dark mode uses Grey/50 (#FFFFFF) as the base text colour,
  * with alpha variants for secondary (72%) and tertiary (64%).
  */
 export interface TextLevel {

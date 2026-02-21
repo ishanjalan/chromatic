@@ -102,16 +102,16 @@ describe('generateScale lightness normalisation', () => {
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
 		// L is TARGET_CURVE[300].L minus small H-K chroma compensation
-		expect(s300.oklch.L).toBeGreaterThan(0.48);
-		expect(s300.oklch.L).toBeLessThan(0.50);
+		expect(s300.oklch.L).toBeGreaterThan(0.53);
+		expect(s300.oklch.L).toBeLessThan(0.56);
 	});
 
 	it('normalises very dark input to TARGET_CURVE L (with H-K)', () => {
 		const scale = generateScale('#1A0033', 'VeryDark');
 		const s300 = scale.shades.find((s) => s.shade === 300)!;
 		expect(s300.wasLAdjusted).toBe(true);
-		expect(s300.oklch.L).toBeGreaterThan(0.48);
-		expect(s300.oklch.L).toBeLessThan(0.50);
+		expect(s300.oklch.L).toBeGreaterThan(0.53);
+		expect(s300.oklch.L).toBeLessThan(0.56);
 	});
 
 	it('all shades use approximate TARGET_CURVE L regardless of input', () => {
@@ -302,6 +302,61 @@ describe('achromatic / neutral grey input', () => {
 			expect(shade.gamutHeadroom).toBeGreaterThanOrEqual(0);
 			expect(shade.gamutHeadroom).toBeLessThanOrEqual(1);
 		}
+	});
+});
+
+// ── CAM16 Hue Correction ────────────────────────────────────────────
+
+describe('CAM16 hue correction', () => {
+	it('non-anchor shades have hue adjusted from the raw input hue', () => {
+		const scale = generateScale('#3B82F6', 'Blue');
+		const inputHue = scale.hue;
+		for (const shade of scale.shades) {
+			if (shade.isAnchor) continue;
+			const hueDiff = Math.abs(shade.oklch.H - inputHue);
+			const wrapped = hueDiff > 180 ? 360 - hueDiff : hueDiff;
+			expect(wrapped).toBeLessThan(30);
+		}
+	});
+
+	it('achromatic inputs bypass hue correction (no drift)', () => {
+		const scale = generateScale('#808080', 'Grey');
+		for (const shade of scale.shades) {
+			expect(shade.oklch.C).toBeLessThan(0.001);
+		}
+	});
+
+	it('blue hue drifts toward higher angles at light shades', () => {
+		const scale = generateScale('#3B6FD0', 'Blue');
+		const s50 = scale.shades.find((s) => s.shade === 50)!;
+		const s500 = scale.shades.find((s) => s.shade === 500)!;
+		expect(s50.oklch.H).toBeGreaterThan(s500.oklch.H);
+	});
+});
+
+// ── Gamut Normalisation ─────────────────────────────────────────────
+
+describe('gamut-width normalisation', () => {
+	it('wide-gamut hues (green) have restrained chroma at shade 50', () => {
+		const green = generateScale('#2E8B57', 'Green');
+		const blue = generateScale('#3B6FD0', 'Blue');
+		const g50 = green.shades.find((s) => s.shade === 50)!;
+		const b50 = blue.shades.find((s) => s.shade === 50)!;
+		expect(g50.oklch.C / b50.oklch.C).toBeLessThan(5);
+	});
+
+	it('shade 300 preserves user chroma unmodified', () => {
+		const scale = generateScale('#E53E3E', 'Red');
+		const s300 = scale.shades.find((s) => s.shade === 300)!;
+		expect(s300.oklch.C).toBeGreaterThan(0.1);
+	});
+
+	it('dark fills (400, 500) have meaningful chroma', () => {
+		const scale = generateScale('#3B82F6', 'Blue');
+		const s400 = scale.shades.find((s) => s.shade === 400)!;
+		const s500 = scale.shades.find((s) => s.shade === 500)!;
+		expect(s400.oklch.C).toBeGreaterThan(0.05);
+		expect(s500.oklch.C).toBeGreaterThan(0.03);
 	});
 });
 

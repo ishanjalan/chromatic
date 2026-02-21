@@ -27,6 +27,7 @@
 	import NeutralAnalysis from '$lib/components/NeutralAnalysis.svelte';
 	import PrimitiveCoverage from '$lib/components/PrimitiveCoverage.svelte';
 	import type { AchromaticFamily } from '$lib/parse-tokens';
+	import { downloadDiagnosticJson } from '$lib/export-diagnostic';
 
 	let hexValue = $state('');
 	let colorName = $state('Custom');
@@ -1095,6 +1096,17 @@
 			{#if allFamilies.length > 0}
 				<div id="apca-matrix" class="mt-6 scroll-mt-16">
 					<ApcaMatrix families={allFamilies} {lockedFamilies} onRemoveFamily={handleRemoveWorkspaceFamily} />
+				</div>
+				<div class="mt-3 flex justify-end">
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-mono font-500 transition-colors cursor-pointer"
+						style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border-subtle);"
+						onclick={() => downloadDiagnosticJson(allFamilies, audit)}
+						title="Download a comprehensive diagnostic JSON for programmatic analysis"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+						Export Diagnostic JSON
+					</button>
 				</div>
 			{/if}
 

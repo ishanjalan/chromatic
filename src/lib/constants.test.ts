@@ -13,7 +13,10 @@ import {
 	APCA_TARGET_LC_200,
 	SHADE_HEADROOM,
 	BASE_RELC,
-	RELC_STEP
+	RELC_STEP,
+	REFERENCE_HUE,
+	CUSP_DAMPING_BASE,
+	CUSP_DAMPING_COEFF
 } from './constants';
 import { oklchToRgb, apcaContrast } from './colour';
 
@@ -100,8 +103,8 @@ describe('APCA-derived L targets', () => {
 
 	it('derived L values land close to historically validated values', () => {
 		const expected: Record<number, number> = {
-			50: 0.91, 100: 0.88, 200: 0.80,
-			300: 0.49, 400: 0.31, 500: 0.23,
+			50: 0.92, 100: 0.87, 200: 0.80,
+			300: 0.55, 400: 0.36, 500: 0.29,
 		};
 		for (const shade of SHADE_LEVELS) {
 			expect(TARGET_CURVE[shade].L).toBeCloseTo(expected[shade], 1);
@@ -120,23 +123,26 @@ describe('APCA-derived L targets', () => {
 // ── Equal-step relC ─────────────────────────────────────────────────
 
 describe('equal-step relC', () => {
-	it('tertiary shades (50, 500) have relC = BASE_RELC', () => {
-		expect(TARGET_CURVE[50].relC).toBeCloseTo(BASE_RELC, 4);
-		expect(TARGET_CURVE[500].relC).toBeCloseTo(BASE_RELC, 4);
+	it('light tertiary (50) has relC = BASE_RELC + 0.25 × RELC_STEP', () => {
+		expect(TARGET_CURVE[50].relC).toBeCloseTo(0.55, 4);
 	});
 
-	it('secondary shades (100, 400) have relC = BASE_RELC + RELC_STEP', () => {
-		expect(TARGET_CURVE[100].relC).toBeCloseTo(BASE_RELC + RELC_STEP, 4);
-		expect(TARGET_CURVE[400].relC).toBeCloseTo(BASE_RELC + RELC_STEP, 4);
+	it('light secondary (100) has relC = BASE_RELC + 1.25 × RELC_STEP', () => {
+		expect(TARGET_CURVE[100].relC).toBeCloseTo(0.75, 4);
 	});
 
 	it('primary shade (200) has relC = BASE_RELC + 2 * RELC_STEP', () => {
 		expect(TARGET_CURVE[200].relC).toBeCloseTo(BASE_RELC + 2 * RELC_STEP, 4);
 	});
 
-	it('light/dark role mirrors have identical relC', () => {
-		expect(TARGET_CURVE[50].relC).toBe(TARGET_CURVE[500].relC);
-		expect(TARGET_CURVE[100].relC).toBe(TARGET_CURVE[400].relC);
+	it('dark fills have boosted relC (asymmetric for richer darks)', () => {
+		expect(TARGET_CURVE[400].relC).toBeCloseTo(0.80, 4);
+		expect(TARGET_CURVE[500].relC).toBeCloseTo(0.70, 4);
+	});
+
+	it('dark fills have higher relC than their light role mirrors', () => {
+		expect(TARGET_CURVE[400].relC).toBeGreaterThan(TARGET_CURVE[100].relC);
+		expect(TARGET_CURVE[500].relC).toBeGreaterThan(TARGET_CURVE[50].relC);
 	});
 });
 
@@ -230,5 +236,23 @@ describe('TEXT_LEVELS', () => {
 		expect(TEXT_LEVELS_GREY750[2].alpha).toBeLessThan(1);
 		expect(TEXT_LEVELS_GREY50[1].alpha).toBeLessThan(1);
 		expect(TEXT_LEVELS_GREY50[2].alpha).toBeLessThan(1);
+	});
+});
+
+// ── Gamut Normalisation Constants ───────────────────────────────────
+
+describe('gamut normalisation constants', () => {
+	it('REFERENCE_HUE is in the blue range (narrowest sRGB gamut)', () => {
+		expect(REFERENCE_HUE).toBeGreaterThanOrEqual(250);
+		expect(REFERENCE_HUE).toBeLessThanOrEqual(280);
+	});
+
+	it('CUSP_DAMPING_BASE is between 0 and 1', () => {
+		expect(CUSP_DAMPING_BASE).toBeGreaterThan(0);
+		expect(CUSP_DAMPING_BASE).toBeLessThan(1);
+	});
+
+	it('CUSP_DAMPING_COEFF is positive', () => {
+		expect(CUSP_DAMPING_COEFF).toBeGreaterThan(0);
 	});
 });

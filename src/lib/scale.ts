@@ -9,7 +9,8 @@ import {
 	apcaContrast,
 	alphaComposite,
 	clampChromaToGamut,
-	maxChromaAtLH
+	maxChromaAtLH,
+	effectiveMaxChroma
 } from './colour';
 import {
 	TARGET_CURVE,
@@ -21,9 +22,12 @@ import {
 	SHADE_ACTIVE_TEXT,
 	SHADE_TEXT_SEMANTIC,
 	HK_COEFF,
-	CHROMA_CAP
+	REFERENCE_HUE,
+	CUSP_DAMPING_BASE,
+	CUSP_DAMPING_COEFF
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
+import { correctedHue } from './colour-cam16';
 
 // ── Text-Level Contrast Result ──────────────────────────────────────
 
@@ -132,20 +136,22 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 	const shades = SHADE_LEVELS.map((shade) => {
 		const { L: tL, relC } = TARGET_CURVE[shade];
 
+		// CAM16 hue correction: find the Oklch hue at this shade's lightness
+		// that preserves the same CAM16 perceptual hue as the anchor.
+		const estimatedC = isAchromatic ? 0 : (shade === 300 ? C_in : relC * maxChromaAtLH(tL, H));
+		const shadeH = isAchromatic ? H : correctedHue(H, L_in, C_in, tL, estimatedC);
+
 		let targetC: number;
 		if (isAchromatic) {
 			targetC = 0;
 		} else if (shade === 300) {
 			targetC = C_in;
 		} else {
-			targetC = relC * maxChromaAtLH(tL, H);
-			const cap = CHROMA_CAP[shade];
-			if (cap !== undefined && targetC > cap) {
-				targetC = cap;
-			}
+			const effMaxC = effectiveMaxChroma(tL, shadeH, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
+			targetC = relC * effMaxC;
 		}
 
-		let finalC = clampChromaToGamut(tL, targetC, H);
+		let finalC = clampChromaToGamut(tL, targetC, shadeH);
 		const wasGamutReduced = Math.abs(targetC - finalC) > 0.001;
 
 		// Helmholtz-Kohlrausch compensation: reduce effective lightness
@@ -154,13 +160,13 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		const targetL = (isAchromatic || shade === 300) ? tL : tL - HK_COEFF * finalC;
 
 		// Re-clamp chroma at the H-K adjusted lightness (safety net)
-		finalC = clampChromaToGamut(targetL, finalC, H);
+		finalC = clampChromaToGamut(targetL, finalC, shadeH);
 
-		const { r, g, b } = oklchToRgb(targetL, finalC, H);
+		const { r, g, b } = oklchToRgb(targetL, finalC, shadeH);
 		const hex = rgbToHex(r, g, b);
 		const lum = relativeLuminance(r, g, b);
 
-		const maxC = maxChromaAtLH(targetL, H);
+		const maxC = maxChromaAtLH(targetL, shadeH);
 		const gamutHeadroom = maxC > 0 ? Math.min(1, finalC / maxC) : 1;
 
 		const contrastOnWhite = contrastRatio(lum, 1.0);
@@ -189,7 +195,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		return {
 			shade,
 			hex,
-			oklch: { L: targetL, C: finalC, H: H },
+			oklch: { L: targetL, C: finalC, H: shadeH },
 			rgb: { r, g, b },
 			contrastOnWhite,
 			contrastOnBlack,

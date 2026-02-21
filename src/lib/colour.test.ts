@@ -267,7 +267,7 @@ describe('apcaContrast', () => {
 
 describe('solveLForApca', () => {
 	const GREY_750 = { r: 0.1137, g: 0.1137, b: 0.1137 };
-	const GREY_50 = { r: 0.9569, g: 0.9569, b: 0.9569 };
+	const GREY_50 = { r: 1.0, g: 1.0, b: 1.0 };
 
 	it('finds the Lc 75 crossing for dark text on light fill', () => {
 		const L = solveLForApca(GREY_750.r, GREY_750.g, GREY_750.b, 75, 'light-fill');

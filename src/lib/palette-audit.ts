@@ -15,10 +15,11 @@ import {
 	rgbToHex,
 	oklchToRgb,
 	maxChromaAtLH,
+	effectiveMaxChroma,
 	clampChromaToGamut,
 	hueDelta
 } from './colour';
-import { TARGET_CURVE, ACHROMATIC_THRESHOLD, MAX_PALETTE_SIZE } from './constants';
+import { TARGET_CURVE, ACHROMATIC_THRESHOLD, MAX_PALETTE_SIZE, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF } from './constants';
 import type { ParsedFamily } from './parse-tokens';
 import { familiesToHueDots } from './parse-tokens';
 import { analyseHueGaps, suggestionsToHueDots, computeCoverageStats } from './gap-analysis';
@@ -149,7 +150,7 @@ export function analyseChroma(families: FamilyOklch[]): ChromaAnalysis[] {
 	if (families.length === 0) return [];
 
 	const analyses: ChromaAnalysis[] = families.map((fam) => {
-		const maxC = maxChromaAtLH(fam.oklch.L, fam.oklch.H);
+		const maxC = effectiveMaxChroma(fam.oklch.L, fam.oklch.H, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
 		const relC = maxC > 0 ? fam.oklch.C / maxC : 0;
 		return {
 			family: fam.name,

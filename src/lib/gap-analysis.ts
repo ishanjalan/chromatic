@@ -19,8 +19,8 @@
  * and chroma, gamut-clamped, so previews match generator output.
  */
 
-import { oklchToRgb, rgbToHex, clampChromaToGamut, maxChromaAtLH, hueDelta } from './colour';
-import { TARGET_CURVE, MAX_PALETTE_SIZE, ANCHOR_REF_CHROMA } from './constants';
+import { oklchToRgb, rgbToHex, clampChromaToGamut, maxChromaAtLH, effectiveMaxChroma, hueDelta } from './colour';
+import { TARGET_CURVE, MAX_PALETTE_SIZE, ANCHOR_REF_CHROMA, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF } from './constants';
 import { TAILWIND_COLORS } from './tailwind-match';
 import { SPECTRUM_COLORS } from './spectrum-colors';
 import { RADIX_COLORS } from './radix-colors';
@@ -149,7 +149,7 @@ function dynamicGapThreshold(familyCount: number): number {
  */
 function candidateRelativeChroma(hue: number): number {
 	const { L } = TARGET_CURVE[300];
-	const maxC = maxChromaAtLH(L, hue);
+	const maxC = effectiveMaxChroma(L, hue, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
 	if (maxC <= 0) return 0;
 	const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, hue);
 	return clampedC / maxC;
@@ -417,7 +417,7 @@ function computeMedianRelativeChroma(dots: HueDot[]): number {
 	const { L } = TARGET_CURVE[300];
 
 	for (const dot of dots) {
-		const maxC = maxChromaAtLH(L, dot.hue);
+		const maxC = effectiveMaxChroma(L, dot.hue, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
 		if (maxC <= 0) continue;
 		const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, dot.hue);
 		relChromas.push(clampedC / maxC);

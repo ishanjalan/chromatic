@@ -86,7 +86,7 @@
 
 	// Text tokens for APCA checks
 	const G750 = { r: 0.1137, g: 0.1137, b: 0.1137 };
-	const G50 = { r: 0.9569, g: 0.9569, b: 0.9569 };
+	const G50 = { r: 1.0, g: 1.0, b: 1.0 };
 
 	interface ShadeComparison {
 		shade: number;
