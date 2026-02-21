@@ -113,7 +113,7 @@ function cam16HueFromXyz(X: number, Y: number, Z: number): number {
  * Compute the CAM16 hue angle for an Oklch colour.
  * Converts Oklch → sRGB → linear RGB → XYZ → CAM16 h.
  */
-export function cam16Hue(L: number, C: number, H: number): number {
+function cam16Hue(L: number, C: number, H: number): number {
 	const { r, g, b } = oklchToRgb(L, C, H);
 	const rLin = srgbToLinear(r);
 	const gLin = srgbToLinear(g);

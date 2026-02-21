@@ -19,11 +19,12 @@
  * and chroma, gamut-clamped, so previews match generator output.
  */
 
-import { oklchToRgb, rgbToHex, clampChromaToGamut, maxChromaAtLH, effectiveMaxChroma, hueDelta } from './colour';
+import { clampChromaToGamut, maxChromaAtLH, effectiveMaxChroma, hueDelta } from './colour';
 import { TARGET_CURVE, MAX_PALETTE_SIZE, ANCHOR_REF_CHROMA, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF } from './constants';
 import { TAILWIND_COLORS } from './tailwind-match';
 import { SPECTRUM_COLORS } from './spectrum-colors';
 import { RADIX_COLORS } from './radix-colors';
+import { makePreviewHex } from './colour-match';
 import type { HueDot } from './components/HueWheel.svelte';
 
 // ── Exported interfaces ─────────────────────────────────────────────
@@ -175,7 +176,7 @@ function buildReferenceColors(existingHues: number[]): Array<{
 			refs.push({
 				name: tw.name,
 				hue: tw.hue,
-				hex: previewHexForHue(tw.hue),
+				hex: makePreviewHex(tw.hue, ANCHOR_REF_CHROMA),
 				source: 'Tailwind',
 				relativeChroma: candidateRelativeChroma(tw.hue)
 			});
@@ -188,7 +189,7 @@ function buildReferenceColors(existingHues: number[]): Array<{
 			refs.push({
 				name: sp.name,
 				hue: sp.hue,
-				hex: previewHexForHue(sp.hue),
+				hex: makePreviewHex(sp.hue, ANCHOR_REF_CHROMA),
 				source: 'Spectrum',
 				relativeChroma: candidateRelativeChroma(sp.hue)
 			});
@@ -201,7 +202,7 @@ function buildReferenceColors(existingHues: number[]): Array<{
 			refs.push({
 				name: rx.name,
 				hue: rx.hue,
-				hex: previewHexForHue(rx.hue),
+				hex: makePreviewHex(rx.hue, ANCHOR_REF_CHROMA),
 				source: 'Radix',
 				relativeChroma: candidateRelativeChroma(rx.hue)
 			});
@@ -211,14 +212,6 @@ function buildReferenceColors(existingHues: number[]): Array<{
 	return refs;
 }
 
-// ── Preview hex generator ───────────────────────────────────────────
-
-function previewHexForHue(hue: number): string {
-	const { L } = TARGET_CURVE[300];
-	const clampedC = clampChromaToGamut(L, ANCHOR_REF_CHROMA, hue);
-	const { r, g, b } = oklchToRgb(L, clampedC, hue);
-	return rgbToHex(r, g, b);
-}
 
 // ── Main analysis ───────────────────────────────────────────────────
 

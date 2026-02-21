@@ -10,7 +10,7 @@
  */
 
 import type { AchromaticFamily } from './parse-tokens';
-import { hexToRgb, rgbToOklch, apcaContrast } from './colour';
+import { hexToRgb, rgbToOklch, apcaContrast, hueDelta } from './colour';
 
 /* ─── Interfaces ─── */
 
@@ -201,10 +201,6 @@ const REF_NEUTRALS: RefNeutral[] = [
 
 /* ─── Helpers ─── */
 
-function hueDistance(a: number, b: number): number {
-	const d = Math.abs(a - b) % 360;
-	return d > 180 ? 360 - d : d;
-}
 
 /* ─── Core analysis ─── */
 
@@ -212,10 +208,10 @@ function hueDistance(a: number, b: number): number {
 function matchShadeToSystem(hue: number, source: 'Tailwind' | 'Radix'): ShadeTintMatch {
 	const chromatic = REF_NEUTRALS.filter((r) => r.source === source && !r.isAchromatic);
 	let bestRef = chromatic[0];
-	let bestDelta = hueDistance(hue, chromatic[0].hue);
+	let bestDelta = hueDelta(hue, chromatic[0].hue);
 
 	for (let i = 1; i < chromatic.length; i++) {
-		const d = hueDistance(hue, chromatic[i].hue);
+		const d = hueDelta(hue, chromatic[i].hue);
 		if (d < bestDelta) {
 			bestDelta = d;
 			bestRef = chromatic[i];
@@ -432,10 +428,10 @@ function findNeutralNames(shades: NeutralShade[]): {
 			if (chromatic.length > 0) {
 				// Find closest hue match
 				let bestRef = chromatic[0];
-				let bestDelta = hueDistance(avgHue!, chromatic[0].hue);
+				let bestDelta = hueDelta(avgHue!, chromatic[0].hue);
 
 				for (let i = 1; i < chromatic.length; i++) {
-					const d = hueDistance(avgHue!, chromatic[i].hue);
+					const d = hueDelta(avgHue!, chromatic[i].hue);
 					if (d < bestDelta) {
 						bestDelta = d;
 						bestRef = chromatic[i];

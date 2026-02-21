@@ -7,8 +7,7 @@
  * Neutral scales (gray, mauve, slate, sage, olive, sand) excluded.
  */
 
-export interface PaletteShade { L: number; C: number; H: number }
-export interface PaletteFamily { name: string; shades: Record<string, PaletteShade> }
+import type { PaletteFamily } from './palette-types';
 
 export const RADIX_PALETTE: PaletteFamily[] = [
 	{ name: 'Tomato', shades: {

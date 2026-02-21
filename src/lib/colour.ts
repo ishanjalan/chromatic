@@ -135,13 +135,22 @@ export function maxChromaAtLH(L: number, H: number): number {
 	return lo;
 }
 
+const _cuspCache = new Map<number, number>();
+
 /**
  * Find the Oklch lightness where the sRGB gamut is widest for a given hue.
  * This "cusp" lightness is a fundamental property of the gamut shape and
  * drives adaptive chroma compression: shades near the cusp have excess
  * gamut and need more compression; shades far from it can use more freely.
+ *
+ * Results are cached by rounded hue (1° resolution) since the cusp is a
+ * property of the sRGB gamut shape, not the input colour.
  */
 export function cuspLightness(H: number): number {
+	const key = Math.round(H) % 360;
+	const cached = _cuspCache.get(key);
+	if (cached !== undefined) return cached;
+
 	let bestL = 0.5;
 	let bestC = 0;
 	for (let l10 = 10; l10 < 95; l10++) {
@@ -152,6 +161,7 @@ export function cuspLightness(H: number): number {
 			bestL = l;
 		}
 	}
+	_cuspCache.set(key, bestL);
 	return bestL;
 }
 

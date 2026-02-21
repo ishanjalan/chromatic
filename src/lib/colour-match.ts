@@ -7,7 +7,7 @@
  */
 
 import { hexToRgb, rgbToOklch, oklchToRgb, rgbToHex, hueDelta, clampChromaToGamut } from './colour';
-import { ACHROMATIC_THRESHOLD, TARGET_CURVE } from './constants';
+import { ACHROMATIC_THRESHOLD, TARGET_CURVE, confidenceFromHueDelta, type HueConfidence } from './constants';
 import { TAILWIND_COLORS } from './tailwind-match';
 import { SPECTRUM_COLORS } from './spectrum-colors';
 import { RADIX_COLORS } from './radix-colors';
@@ -18,7 +18,7 @@ export interface ColourMatch {
 	name: string;
 	source: DesignSystem;
 	hueDelta: number;
-	confidence: 'exact' | 'close' | 'approximate' | 'distant';
+	confidence: HueConfidence;
 	/** Reference hue from the design system */
 	refHue: number;
 	/** Reference chroma from the design system */
@@ -40,15 +40,9 @@ export interface MultiSystemMatch {
 	isAchromatic: boolean;
 }
 
-function confidenceFromDelta(hd: number): ColourMatch['confidence'] {
-	if (hd < 8) return 'exact';
-	if (hd < 18) return 'close';
-	if (hd < 30) return 'approximate';
-	return 'distant';
-}
 
 /** Generate a preview hex for a reference colour at our anchor lightness. */
-function makePreviewHex(refHue: number, refChroma: number): string {
+export function makePreviewHex(refHue: number, refChroma: number): string {
 	const { L } = TARGET_CURVE[300];
 	const C = clampChromaToGamut(L, refChroma, refHue);
 	const { r, g, b } = oklchToRgb(L, C, refHue);
@@ -77,7 +71,7 @@ function findBest(
 		name: bestName,
 		source,
 		hueDelta: bestHueDelta,
-		confidence: confidenceFromDelta(bestHueDelta),
+		confidence: confidenceFromHueDelta(bestHueDelta),
 		refHue: bestRef.hue,
 		refChroma: bestRef.chroma,
 		refLightness: bestRef.lightness,
@@ -129,7 +123,7 @@ export function findTopMatches(hex: string, limit = 6): ColourMatch[] {
 				name: c.name,
 				source,
 				hueDelta: hd,
-				confidence: confidenceFromDelta(hd),
+				confidence: confidenceFromHueDelta(hd),
 				refHue: c.hue,
 				refChroma: c.chroma,
 				refLightness: c.lightness,

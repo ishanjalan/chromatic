@@ -6,8 +6,7 @@
  * 13 chromatic families × 16 shades (100–1600, light mode, sRGB RGB → Oklch).
  */
 
-export interface PaletteShade { L: number; C: number; H: number }
-export interface PaletteFamily { name: string; shades: Record<string, PaletteShade> }
+import type { PaletteFamily } from './palette-types';
 
 export const SPECTRUM_PALETTE: PaletteFamily[] = [
 	{ name: 'Red', shades: {

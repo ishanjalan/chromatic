@@ -10,7 +10,7 @@
  */
 
 import { hexToRgb, rgbToOklch, hueDelta } from './colour';
-import { ACHROMATIC_THRESHOLD } from './constants';
+import { ACHROMATIC_THRESHOLD, confidenceFromHueDelta, type HueConfidence } from './constants';
 import { TAILWIND_PALETTE } from './tailwind-palette';
 
 export interface TailwindColor {
@@ -36,7 +36,7 @@ export interface TailwindMatch {
 	/** Hue difference in degrees */
 	hueDelta: number;
 	/** Whether this is a close match (< 15°) or approximate (< 30°) */
-	confidence: 'exact' | 'close' | 'approximate' | 'distant';
+	confidence: HueConfidence;
 }
 
 /**
@@ -65,11 +65,5 @@ export function findClosestTailwind(hex: string): TailwindMatch {
 		}
 	}
 
-	let confidence: TailwindMatch['confidence'];
-	if (bestHueDelta < 8) confidence = 'exact';
-	else if (bestHueDelta < 18) confidence = 'close';
-	else if (bestHueDelta < 30) confidence = 'approximate';
-	else confidence = 'distant';
-
-	return { name: bestName, hueDelta: bestHueDelta, confidence };
+	return { name: bestName, hueDelta: bestHueDelta, confidence: confidenceFromHueDelta(bestHueDelta) };
 }

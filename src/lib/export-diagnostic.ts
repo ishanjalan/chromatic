@@ -14,6 +14,12 @@ import { TAILWIND_PALETTE } from './tailwind-palette';
 import { RADIX_PALETTE } from './radix-palette';
 import { SPECTRUM_PALETTE } from './spectrum-palette';
 
+const CHROMA_BAND_LOW = 0.7;
+const CHROMA_BAND_HIGH = 1.3;
+function inChromaBand(ratio: number): boolean {
+	return ratio >= CHROMA_BAND_LOW && ratio <= CHROMA_BAND_HIGH;
+}
+
 interface RefShade { L: number; C: number; H: number; family: string; shade: string; }
 
 function collectRefs(
@@ -171,7 +177,7 @@ export function buildDiagnosticExport(
 						closestShade: closest.shade,
 						closestC: closest.C,
 						chromaRatio: Math.round(ratio * 1000) / 1000,
-						inBand: ratio >= 0.7 && ratio <= 1.3,
+						inBand: inChromaBand(ratio),
 					});
 				}
 			}
@@ -213,7 +219,7 @@ export function buildDiagnosticExport(
 
 	const bandAnalysis = SHADE_LEVELS.map(shade => {
 		const sr = allRatios.filter(r => r.shade === shade);
-		const inBand = sr.filter(r => r.ratio >= 0.7 && r.ratio <= 1.3);
+		const inBand = sr.filter(r => inChromaBand(r.ratio));
 		return {
 			shade,
 			totalComparisons: sr.length,
@@ -225,10 +231,10 @@ export function buildDiagnosticExport(
 		};
 	});
 
-	const totalIn = allRatios.filter(r => r.ratio >= 0.7 && r.ratio <= 1.3);
+	const totalIn = allRatios.filter(r => inChromaBand(r.ratio));
 	const perSystem = ['Tailwind', 'Radix', 'Spectrum'].map(sys => {
 		const sr = allRatios.filter(r => r.system === sys);
-		const inBand = sr.filter(r => r.ratio >= 0.7 && r.ratio <= 1.3);
+		const inBand = sr.filter(r => inChromaBand(r.ratio));
 		return {
 			system: sys,
 			inBand: inBand.length,

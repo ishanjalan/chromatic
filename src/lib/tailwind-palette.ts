@@ -7,8 +7,7 @@
  * Values are the canonical oklch(L% C H) from theme.css — NOT round-tripped through hex.
  */
 
-export interface PaletteShade { L: number; C: number; H: number }
-export interface PaletteFamily { name: string; shades: Record<string, PaletteShade> }
+import type { PaletteFamily } from './palette-types';
 
 export const TAILWIND_PALETTE: PaletteFamily[] = [
 	{ name: 'Red', shades: {

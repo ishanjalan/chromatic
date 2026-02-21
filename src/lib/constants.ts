@@ -171,6 +171,21 @@ export const CUSP_DAMPING_COEFF = 2.0;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 
+// ── Hue-distance confidence bands ──────────────────────────────────
+
+export const HUE_CONFIDENCE_EXACT = 8;
+export const HUE_CONFIDENCE_CLOSE = 15;
+export const HUE_CONFIDENCE_APPROX = 30;
+
+export type HueConfidence = 'exact' | 'close' | 'approximate' | 'distant';
+
+export function confidenceFromHueDelta(hd: number): HueConfidence {
+	if (hd < HUE_CONFIDENCE_EXACT) return 'exact';
+	if (hd < HUE_CONFIDENCE_CLOSE) return 'close';
+	if (hd < HUE_CONFIDENCE_APPROX) return 'approximate';
+	return 'distant';
+}
+
 export type ShadeLevel = (typeof SHADE_LEVELS)[number];
 
 /**
