@@ -59,7 +59,7 @@ async function resolveColorAlias(
   const target = await figma.variables.getVariableByIdAsync(alias.id);
   if (!target) return null;
 
-  let val = target.valuesByMode[modeId];
+  const val = target.valuesByMode[modeId];
   if (!val) {
     const modeIds = Object.keys(target.valuesByMode);
     if (modeIds.length === 0) return null;

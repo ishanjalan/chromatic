@@ -4,10 +4,16 @@
   "private": true,
   "scripts": {
     "build": "node build.mjs",
-    "watch": "node build.mjs --watch"
+    "watch": "node build.mjs --watch",
+    "lint": "eslint src/"
   },
   "devDependencies": {
+    "@figma/eslint-plugin-figma-plugins": "^1.0.0",
     "@figma/plugin-typings": "^1.104.0",
-    "esbuild": "^0.25.0"
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.3",
+    "typescript-eslint": "^8.56.0"
   }
 }
