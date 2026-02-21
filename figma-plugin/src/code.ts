@@ -228,6 +228,7 @@ async function extractColorTokens() {
 // ── Message handler ─────────────────────────────────────────────────────
 
 const URL_STORAGE_KEY = 'chromatic:url';
+const ENDPOINT_STORAGE_KEY = 'chromatic:endpoint';
 
 async function runExtraction() {
   try {
@@ -243,19 +244,28 @@ async function runExtraction() {
   }
 }
 
-figma.ui.onmessage = async (msg: { type: string; url?: string }) => {
+figma.ui.onmessage = async (msg: { type: string; url?: string; endpoint?: string }) => {
   if (msg.type === 'ui-ready' || msg.type === 'extract') {
     await runExtraction();
   }
 
   if (msg.type === 'load-url') {
-    const saved = await figma.clientStorage.getAsync(URL_STORAGE_KEY);
-    figma.ui.postMessage({ type: 'url-loaded', url: saved || '' });
+    const savedUrl = await figma.clientStorage.getAsync(URL_STORAGE_KEY);
+    const savedEndpoint = await figma.clientStorage.getAsync(ENDPOINT_STORAGE_KEY);
+    figma.ui.postMessage({
+      type: 'url-loaded',
+      url: savedUrl || '',
+      endpoint: savedEndpoint || '/api/figma/sync',
+    });
     await runExtraction();
   }
 
   if (msg.type === 'save-url' && msg.url !== undefined) {
     await figma.clientStorage.setAsync(URL_STORAGE_KEY, msg.url);
+  }
+
+  if (msg.type === 'save-endpoint' && msg.endpoint !== undefined) {
+    await figma.clientStorage.setAsync(ENDPOINT_STORAGE_KEY, msg.endpoint);
   }
 
   if (msg.type === 'close') {

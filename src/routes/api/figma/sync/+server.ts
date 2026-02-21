@@ -1,11 +1,13 @@
 /**
  * Figma plugin sync endpoint.
  *
- * POST: Receives extracted colour tokens from the Chromatic Figma plugin.
+ * POST: Receives extracted colour tokens from any Figma plugin.
  * GET:  Returns the most recently synced data (polled by the web app).
  *
  * Data is held in-memory (server restart clears it). This is intentional —
  * the sync is ephemeral and only bridges the Figma plugin → browser tab gap.
+ *
+ * CORS is handled globally by hooks.server.ts for all /api/ routes.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -22,16 +24,6 @@ interface StoredSync extends SyncPayload {
 }
 
 let latestSync: StoredSync | null = null;
-
-const CORS_HEADERS = {
-	'Access-Control-Allow-Origin': '*',
-	'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-	'Access-Control-Allow-Headers': 'Content-Type',
-};
-
-export const OPTIONS: RequestHandler = async () => {
-	return new Response(null, { status: 204, headers: CORS_HEADERS });
-};
 
 export const POST: RequestHandler = async ({ request }) => {
 	let body: unknown;
@@ -57,25 +49,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		receivedAt: new Date().toISOString(),
 	};
 
-	return json(
-		{ success: true, receivedAt: latestSync.receivedAt },
-		{ headers: CORS_HEADERS }
-	);
+	return json({ success: true, receivedAt: latestSync.receivedAt });
 };
 
 export const GET: RequestHandler = async () => {
 	if (!latestSync) {
-		return json({ available: false }, { headers: CORS_HEADERS });
+		return json({ available: false });
 	}
 
-	return json(
-		{
-			available: true,
-			receivedAt: latestSync.receivedAt,
-			primitives: latestSync.primitives,
-			lightSemantic: latestSync.lightSemantic,
-			darkSemantic: latestSync.darkSemantic,
-		},
-		{ headers: CORS_HEADERS }
-	);
+	return json({
+		available: true,
+		receivedAt: latestSync.receivedAt,
+		primitives: latestSync.primitives,
+		lightSemantic: latestSync.lightSemantic,
+		darkSemantic: latestSync.darkSemantic,
+	});
 };

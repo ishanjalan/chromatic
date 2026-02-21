@@ -15,7 +15,7 @@
         </svg>
         <h1>Chromatic Sync</h1>
       </div>
-      <p class="subtitle">Extract colour variables and send to Chromatic for analysis</p>
+      <p class="subtitle">Extract colour variables and push to any server</p>
     </header>
 
     <div class="stats" id="stats" style="display:none">
@@ -34,21 +34,34 @@
     </div>
 
     <div class="url-section">
-      <label for="url-input">Chromatic URL</label>
+      <label for="url-input">Server URL</label>
       <div class="url-row">
         <input
           type="url"
           id="url-input"
-          placeholder="https://chromatic-six.vercel.app"
+          placeholder="https://your-app.vercel.app"
           spellcheck="false"
         />
         <span class="url-status" id="url-status"></span>
       </div>
     </div>
 
+    <div class="url-section">
+      <label for="endpoint-input">Endpoint path</label>
+      <div class="url-row">
+        <input
+          type="text"
+          id="endpoint-input"
+          placeholder="/api/figma/sync"
+          spellcheck="false"
+        />
+      </div>
+      <span class="hint">POST endpoint that receives { primitives, lightSemantic, darkSemantic }</span>
+    </div>
+
     <div class="actions">
       <button id="btn-sync" class="btn btn-primary" disabled>
-        <span class="btn-text">Sync to Chromatic</span>
+        <span class="btn-text">Push Tokens</span>
       </button>
       <button id="btn-download" class="btn btn-secondary" disabled>
         Download JSON
