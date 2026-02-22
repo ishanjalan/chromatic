@@ -16,7 +16,12 @@ import {
 	RELC_STEP,
 	REFERENCE_HUE,
 	CUSP_DAMPING_BASE,
-	CUSP_DAMPING_COEFF
+	CUSP_DAMPING_COEFF,
+	DAMPING_CEILING_L,
+	DAMPING_CEILING_VALUE,
+	HK_BASE,
+	HK_AMPLITUDE,
+	HK_PEAK_HUE
 } from './constants';
 import { oklchToRgb, apcaContrast } from './colour';
 
@@ -69,6 +74,20 @@ describe('TARGET_CURVE', () => {
 	it('HK_COEFF is a small positive compensation factor', () => {
 		expect(HK_COEFF).toBeGreaterThan(0);
 		expect(HK_COEFF).toBeLessThan(0.1);
+	});
+
+	it('HK_BASE equals HK_COEFF (mean of hue-dependent curve)', () => {
+		expect(HK_BASE).toBe(HK_COEFF);
+	});
+
+	it('HK_AMPLITUDE is positive and less than HK_BASE', () => {
+		expect(HK_AMPLITUDE).toBeGreaterThan(0);
+		expect(HK_AMPLITUDE).toBeLessThan(HK_BASE);
+	});
+
+	it('HK_PEAK_HUE is in the blue range', () => {
+		expect(HK_PEAK_HUE).toBeGreaterThanOrEqual(250);
+		expect(HK_PEAK_HUE).toBeLessThanOrEqual(280);
 	});
 });
 
@@ -254,5 +273,20 @@ describe('gamut normalisation constants', () => {
 
 	it('CUSP_DAMPING_COEFF is positive', () => {
 		expect(CUSP_DAMPING_COEFF).toBeGreaterThan(0);
+	});
+
+	it('DAMPING_CEILING_L is between 0.8 and 0.95', () => {
+		expect(DAMPING_CEILING_L).toBeGreaterThanOrEqual(0.8);
+		expect(DAMPING_CEILING_L).toBeLessThanOrEqual(0.95);
+	});
+
+	it('DAMPING_CEILING_VALUE is between 0.3 and 0.8', () => {
+		expect(DAMPING_CEILING_VALUE).toBeGreaterThanOrEqual(0.3);
+		expect(DAMPING_CEILING_VALUE).toBeLessThanOrEqual(0.8);
+	});
+
+	it('DAMPING_CEILING_L is above shade 200 L and below shade 100 L', () => {
+		expect(DAMPING_CEILING_L).toBeGreaterThan(TARGET_CURVE[200].L);
+		expect(DAMPING_CEILING_L).toBeLessThan(TARGET_CURVE[100].L);
 	});
 });

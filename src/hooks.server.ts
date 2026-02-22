@@ -22,5 +22,5 @@ export const handle: Handle = async ({ event, resolve }) => {
 		response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 	}
 
-	return resolve(event);
+	return response;
 };

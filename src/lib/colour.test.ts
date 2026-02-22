@@ -16,8 +16,16 @@ import {
 	solveLForApca,
 	alphaComposite,
 	isValidHex,
-	normalizeHex
+	normalizeHex,
+	adaptiveDamping,
+	effectiveMaxChroma,
+	maxChromaAtLH,
+	cuspLightness,
+	hkCoeff,
+	HK_BASE,
+	HK_AMPLITUDE
 } from './colour';
+import { REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, DAMPING_CEILING_VALUE } from './constants';
 
 // ── sRGB ↔ Linear RGB round-trips ──────────────────────────────────
 
@@ -374,5 +382,121 @@ describe('alphaComposite', () => {
 		const result = alphaComposite(grey750, grey750, grey750, 0.69, 1, 1, 1);
 		const expected = grey750 * 0.69 + 1 * 0.31;
 		expect(result.r).toBeCloseTo(expected, 4);
+	});
+});
+
+// ── Adaptive Damping with Ceiling ───────────────────────────────────
+
+describe('adaptiveDamping with ceiling', () => {
+	const GREEN_HUE = 155;
+	const BLUE_HUE = 264;
+
+	it('caps green at shade 50 L to the ceiling value', () => {
+		const result = adaptiveDamping(0.92, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
+		expect(result).toBe(0.55);
+	});
+
+	it('caps green at shade 100 L to the ceiling value', () => {
+		const result = adaptiveDamping(0.87, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
+		expect(result).toBe(0.55);
+	});
+
+	it('shade 200 L (below ceiling) is unaffected', () => {
+		const withCeiling = adaptiveDamping(0.80, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
+		const without = adaptiveDamping(0.80, GREEN_HUE, 0.70, 2.0);
+		expect(withCeiling).toBe(without);
+	});
+
+	it('without ceiling args, green at shade 50 exceeds the ceiling value', () => {
+		const result = adaptiveDamping(0.92, GREEN_HUE, 0.70, 2.0);
+		expect(result).toBeGreaterThan(DAMPING_CEILING_VALUE);
+	});
+
+	it('blue hue at shade 50 never enters the damping path', () => {
+		const hueMaxC = maxChromaAtLH(0.92, BLUE_HUE);
+		const refMaxC = maxChromaAtLH(0.92, REFERENCE_HUE);
+		expect(hueMaxC).toBeLessThanOrEqual(refMaxC);
+	});
+});
+
+describe('effectiveMaxChroma with ceiling', () => {
+	it('green shade 50 effective chroma is reduced by the ceiling', () => {
+		const withCeiling = effectiveMaxChroma(
+			0.92, 155, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+		);
+		const without = effectiveMaxChroma(
+			0.92, 155, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF
+		);
+		expect(withCeiling).toBeLessThan(without);
+	});
+
+	it('shade 200 effective chroma is identical with and without ceiling', () => {
+		const withCeiling = effectiveMaxChroma(
+			0.80, 155, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+		);
+		const without = effectiveMaxChroma(
+			0.80, 155, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF
+		);
+		expect(withCeiling).toBeCloseTo(without, 6);
+	});
+});
+
+// ── cuspLightness Ternary Search ────────────────────────────────────
+
+describe('cuspLightness', () => {
+	it('returns values in a sane range (0.3-0.95) for representative hues', () => {
+		for (const H of [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]) {
+			const cusp = cuspLightness(H);
+			expect(cusp, `hue ${H}`).toBeGreaterThanOrEqual(0.3);
+			expect(cusp, `hue ${H}`).toBeLessThanOrEqual(0.95);
+		}
+	});
+
+	it('blue cusp is lower than green and yellow cusps', () => {
+		const blueCusp = cuspLightness(264);
+		const greenCusp = cuspLightness(155);
+		const yellowCusp = cuspLightness(90);
+		expect(blueCusp).toBeLessThan(greenCusp);
+		expect(blueCusp).toBeLessThan(yellowCusp);
+	});
+
+	it('returns consistent results (cached)', () => {
+		const a = cuspLightness(155);
+		const b = cuspLightness(155);
+		expect(a).toBe(b);
+	});
+});
+
+// ── Hue-Dependent H-K Coefficient ──────────────────────────────────
+
+describe('hkCoeff', () => {
+	it('peaks at blue (264°)', () => {
+		expect(hkCoeff(264)).toBeCloseTo(HK_BASE + HK_AMPLITUDE, 6);
+	});
+
+	it('is weakest at yellow-green (~84°)', () => {
+		expect(hkCoeff(84)).toBeCloseTo(HK_BASE - HK_AMPLITUDE, 2);
+	});
+
+	it('is always positive for all hues', () => {
+		for (let H = 0; H < 360; H += 10) {
+			expect(hkCoeff(H), `hue ${H}`).toBeGreaterThan(0);
+		}
+	});
+
+	it('blue compensation is stronger than green compensation', () => {
+		expect(hkCoeff(264)).toBeGreaterThan(hkCoeff(155));
+	});
+
+	it('averages to approximately HK_BASE across all hues', () => {
+		let sum = 0;
+		for (let H = 0; H < 360; H++) sum += hkCoeff(H);
+		expect(sum / 360).toBeCloseTo(HK_BASE, 3);
 	});
 });

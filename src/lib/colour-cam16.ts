@@ -129,7 +129,18 @@ function cam16Hue(L: number, C: number, H: number): number {
  * Returns the corrected Oklch hue angle (0–360).
  * For achromatic or near-achromatic colours, returns anchorH unchanged.
  */
-const MAX_HUE_DRIFT = 15; // degrees — perceptual limit before hue identity is lost
+/**
+ * Hue-dependent maximum allowed hue drift (degrees).
+ *
+ * The Abney effect is strongest near blue (270°) and violet,
+ * weakest near yellow (90°) and green (155°). Blues need a wider
+ * drift allowance to benefit from CAM16 correction; yellows and
+ * greens hold tighter to preserve hue identity.
+ */
+function maxHueDrift(H: number): number {
+	const rad = ((H - 270) * Math.PI) / 180;
+	return 15 + 8 * Math.cos(rad);
+}
 
 export function correctedHue(
 	anchorH: number,
@@ -170,8 +181,9 @@ export function correctedHue(
 	if (drift > 180) drift -= 360;
 	if (drift < -180) drift += 360;
 
-	if (Math.abs(drift) > MAX_HUE_DRIFT) {
-		const clamped = anchorH + Math.sign(drift) * MAX_HUE_DRIFT;
+	const driftLimit = maxHueDrift(anchorH);
+	if (Math.abs(drift) > driftLimit) {
+		const clamped = anchorH + Math.sign(drift) * driftLimit;
 		return ((clamped % 360) + 360) % 360;
 	}
 

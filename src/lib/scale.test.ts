@@ -128,6 +128,13 @@ describe('generateScale lightness normalisation', () => {
 		// Chroma should be from the user's input (gamut-clamped), not from TARGET_CURVE
 		expect(s300.oklch.C).toBeGreaterThan(0);
 	});
+
+	it('H-K compensation lowers shade 50 L below the raw target curve L', () => {
+		const green = generateScale('#2E8B57', 'Green');
+		const g50 = green.shades.find((s) => s.shade === 50)!;
+		expect(g50.oklch.C).toBeGreaterThan(0.01);
+		expect(g50.oklch.L).toBeLessThan(0.925);
+	});
 });
 
 // ── APCA Compliance ─────────────────────────────────────────────────
@@ -332,6 +339,33 @@ describe('CAM16 hue correction', () => {
 		const s500 = scale.shades.find((s) => s.shade === 500)!;
 		expect(s50.oklch.H).toBeGreaterThan(s500.oklch.H);
 	});
+
+	it('yellow shade 50 hue drift stays tight (Abney effect is weak)', () => {
+		const scale = generateScale('#EAB308', 'Yellow');
+		const inputHue = scale.hue;
+		const s50 = scale.shades.find((s) => s.shade === 50)!;
+		let drift = s50.oklch.H - inputHue;
+		if (drift > 180) drift -= 360;
+		if (drift < -180) drift += 360;
+		expect(Math.abs(drift)).toBeLessThan(12);
+	});
+
+	it('all shades stay within 30 deg of anchor hue (integration check)', () => {
+		const testHexes = ['#3B82F6', '#2E8B57', '#EAB308', '#E53E3E', '#7E42EB'];
+		for (const hex of testHexes) {
+			const scale = generateScale(hex);
+			const inputHue = scale.hue;
+			for (const shade of scale.shades) {
+				let diff = shade.oklch.H - inputHue;
+				if (diff > 180) diff -= 360;
+				if (diff < -180) diff += 360;
+				expect(
+					Math.abs(diff),
+					`${hex} shade ${shade.shade} drift=${diff.toFixed(1)}`
+				).toBeLessThan(30);
+			}
+		}
+	});
 });
 
 // ── Gamut Normalisation ─────────────────────────────────────────────
@@ -342,7 +376,27 @@ describe('gamut-width normalisation', () => {
 		const blue = generateScale('#3B6FD0', 'Blue');
 		const g50 = green.shades.find((s) => s.shade === 50)!;
 		const b50 = blue.shades.find((s) => s.shade === 50)!;
-		expect(g50.oklch.C / b50.oklch.C).toBeLessThan(5);
+		expect(g50.oklch.C / b50.oklch.C).toBeLessThan(3);
+	});
+
+	it('yellow shade 50 chroma is within Tailwind reference range', () => {
+		const yellow = generateScale('#EAB308', 'Yellow');
+		const y50 = yellow.shades.find((s) => s.shade === 50)!;
+		expect(y50.oklch.C).toBeLessThan(0.080);
+	});
+
+	it('green shade 100 chroma is restrained for wide-gamut hues', () => {
+		const green = generateScale('#2E8B57', 'Green');
+		const blue = generateScale('#3B6FD0', 'Blue');
+		const g100 = green.shades.find((s) => s.shade === 100)!;
+		const b100 = blue.shades.find((s) => s.shade === 100)!;
+		expect(g100.oklch.C / b100.oklch.C).toBeLessThan(4);
+	});
+
+	it('shade 200 chroma is unaffected by damping ceiling (L below threshold)', () => {
+		const green = generateScale('#2E8B57', 'Green');
+		const g200 = green.shades.find((s) => s.shade === 200)!;
+		expect(g200.oklch.C).toBeGreaterThan(0.05);
 	});
 
 	it('shade 300 preserves user chroma unmodified', () => {

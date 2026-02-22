@@ -7,6 +7,7 @@
 	import type { ParsedFamily } from '$lib/parse-tokens';
 	import type { PaletteAudit, ChromaAnalysis, Shade300Tweak, ScoreBreakdown } from '$lib/palette-audit';
 	import GradientStrip from './GradientStrip.svelte';
+	import EngineCurves from './EngineCurves.svelte';
 
 	let {
 		families,
@@ -701,6 +702,14 @@
 					<div class="mt-3 flex flex-col gap-1.5 px-1">
 						<GradientStrip hexes={comp.shades.map((s) => s.existingHex)} label="Existing" height={10} />
 						<GradientStrip hexes={comp.shades.map((s) => s.proposedHex)} label="Proposed" height={10} />
+					</div>
+
+					<!-- Lightness & Chroma comparison curves -->
+					<div class="mt-4 px-1">
+						<EngineCurves
+							shades={comp.shades.map((s) => ({ shade: s.shade, existingHex: s.existingHex, proposedHex: s.proposedHex }))}
+							familyName={comp.name}
+						/>
 					</div>
 				{/if}
 			</div>

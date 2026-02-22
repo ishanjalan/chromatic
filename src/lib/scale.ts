@@ -10,7 +10,8 @@ import {
 	alphaComposite,
 	clampChromaToGamut,
 	maxChromaAtLH,
-	effectiveMaxChroma
+	effectiveMaxChroma,
+	hkCoeff
 } from './colour';
 import {
 	TARGET_CURVE,
@@ -21,10 +22,11 @@ import {
 	TEXT_LEVELS_GREY50,
 	SHADE_ACTIVE_TEXT,
 	SHADE_TEXT_SEMANTIC,
-	HK_COEFF,
 	REFERENCE_HUE,
 	CUSP_DAMPING_BASE,
-	CUSP_DAMPING_COEFF
+	CUSP_DAMPING_COEFF,
+	DAMPING_CEILING_L,
+	DAMPING_CEILING_VALUE
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
 import { correctedHue } from './colour-cam16';
@@ -138,7 +140,10 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 
 		// CAM16 hue correction: find the Oklch hue at this shade's lightness
 		// that preserves the same CAM16 perceptual hue as the anchor.
-		const estimatedC = isAchromatic ? 0 : (shade === 300 ? C_in : relC * maxChromaAtLH(tL, H));
+		const estimatedC = isAchromatic ? 0 : (shade === 300 ? C_in : relC * effectiveMaxChroma(
+			tL, H, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+		));
 		const shadeH = isAchromatic ? H : correctedHue(H, L_in, C_in, tL, estimatedC);
 
 		let targetC: number;
@@ -147,7 +152,11 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		} else if (shade === 300) {
 			targetC = C_in;
 		} else {
-			const effMaxC = effectiveMaxChroma(tL, shadeH, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
+			const effMaxC = effectiveMaxChroma(
+				tL, shadeH, REFERENCE_HUE,
+				CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+				DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+			);
 			targetC = relC * effMaxC;
 		}
 
@@ -157,7 +166,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		// Helmholtz-Kohlrausch compensation: reduce effective lightness
 		// proportionally to chroma so saturated shades don't appear
 		// brighter than their achromatic equivalent.
-		const targetL = (isAchromatic || shade === 300) ? tL : tL - HK_COEFF * finalC;
+		const targetL = (isAchromatic || shade === 300) ? tL : tL - hkCoeff(shadeH) * finalC;
 
 		// Re-clamp chroma at the H-K adjusted lightness (safety net)
 		finalC = clampChromaToGamut(targetL, finalC, shadeH);

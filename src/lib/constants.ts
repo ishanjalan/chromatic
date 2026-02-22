@@ -1,4 +1,5 @@
-import { solveLForApca } from './colour';
+import { solveLForApca, hexToRgb } from './colour';
+export { HK_BASE, HK_AMPLITUDE, HK_PEAK_HUE, hkCoeff } from './colour';
 
 // ── APCA-Derived Lightness Targets ──────────────────────────────────
 //
@@ -48,7 +49,8 @@ export const SHADE_HEADROOM: Record<number, number> = {
 
 // ── Derive L targets from APCA floor + headroom ────────────────────
 
-const GREY_750_RGB = { r: 0.1137, g: 0.1137, b: 0.1137 };
+const _g750 = hexToRgb('#1D1D1D');
+const GREY_750_RGB = { r: _g750.r, g: _g750.g, b: _g750.b };
 const GREY_50_RGB  = { r: 1.0, g: 1.0, b: 1.0 };
 
 const lightFloor = solveLForApca(
@@ -135,11 +137,13 @@ export const TARGET_CURVE: Record<number, { L: number; relC: number }> = {
 export const ANCHOR_REF_CHROMA = 0.1729;
 
 /**
- * Helmholtz-Kohlrausch lightness compensation coefficient.
+ * Helmholtz-Kohlrausch lightness compensation coefficient (legacy flat value).
  *     L_effective = L_target - HK_COEFF × actualC
- * Calibrated so the maximum L reduction is ~0.007 (at C ≈ 0.17).
+ * Retained for backward-compatible reference. Scale generation uses the
+ * hue-dependent hkCoeff(H) function instead.
  */
 export const HK_COEFF = 0.04;
+
 
 /**
  * Reference hue for gamut-width normalization (Oklch degrees).
@@ -168,6 +172,30 @@ export const REFERENCE_HUE = 264;
  */
 export const CUSP_DAMPING_BASE = 0.70;
 export const CUSP_DAMPING_COEFF = 2.0;
+
+/**
+ * Lightness threshold above which the damping ceiling takes effect.
+ *
+ * Shade 50 (L~0.92) and shade 100 (L~0.87) are both above this, so
+ * both get tighter compression on wide-gamut hues (green, yellow, amber).
+ * Shade 200 (L~0.80) and below are unaffected.
+ *
+ * Without this ceiling, hues whose gamut cusp is far below the shade's
+ * lightness (e.g. green cusp ~0.55 vs shade 50 at L~0.92) push the
+ * adaptive damping to 1.0, effectively disabling compression and
+ * producing oversaturated whisper tints.
+ */
+export const DAMPING_CEILING_L = 0.85;
+
+/**
+ * Maximum damping factor when L > DAMPING_CEILING_L.
+ *
+ * Calibrated against Tailwind 100–200 chroma for green/yellow/amber.
+ * 0.55 reduces wide-gamut shade 50 chroma by ~45% of the excess over
+ * the blue reference, landing within the 0.030–0.055 range that
+ * established design systems use at equivalent lightness.
+ */
+export const DAMPING_CEILING_VALUE = 0.55;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 

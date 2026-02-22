@@ -9,7 +9,7 @@ import type { ScaleResult, ShadeInfo } from './scale';
 import type { PaletteAudit } from './palette-audit';
 import type { ParsedFamily } from './parse-tokens';
 import { hexToRgb, rgbToOklch, apcaContrast, hueDelta, maxChromaAtLH, effectiveMaxChroma, isValidHex } from './colour';
-import { TARGET_CURVE, SHADE_LEVELS, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, BASE_RELC, RELC_STEP, ACHROMATIC_THRESHOLD } from './constants';
+import { TARGET_CURVE, SHADE_LEVELS, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, DAMPING_CEILING_VALUE, BASE_RELC, RELC_STEP, ACHROMATIC_THRESHOLD } from './constants';
 import { TAILWIND_PALETTE } from './tailwind-palette';
 import { RADIX_PALETTE } from './radix-palette';
 import { SPECTRUM_PALETTE } from './spectrum-palette';
@@ -95,6 +95,8 @@ interface DiagnosticExport {
 		referenceHue: number;
 		cuspDampingBase: number;
 		cuspDampingCoeff: number;
+		dampingCeilingL: number;
+		dampingCeilingValue: number;
 		targetCurve: Record<number, { L: number; relC: number }>;
 	};
 	families: FamilyExport[];
@@ -161,7 +163,11 @@ export function buildDiagnosticExport(
 			const hDrift = hueDelta(sh.oklch.H, inputOklch.H);
 			if (hDrift > 15) hueDriftWarnings++;
 
-			const effMaxC = effectiveMaxChroma(sh.oklch.L, sh.oklch.H, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF);
+			const effMaxC = effectiveMaxChroma(
+				sh.oklch.L, sh.oklch.H, REFERENCE_HUE,
+				CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+				DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+			);
 			const rawMaxC = maxChromaAtLH(sh.oklch.L, sh.oklch.H);
 			const actualRelC = effMaxC > 0 ? sh.oklch.C / effMaxC : 0;
 
@@ -257,6 +263,8 @@ export function buildDiagnosticExport(
 			referenceHue: REFERENCE_HUE,
 			cuspDampingBase: CUSP_DAMPING_BASE,
 			cuspDampingCoeff: CUSP_DAMPING_COEFF,
+			dampingCeilingL: DAMPING_CEILING_L,
+			dampingCeilingValue: DAMPING_CEILING_VALUE,
 			targetCurve: tc,
 		},
 		families,

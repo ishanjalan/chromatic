@@ -151,18 +151,41 @@ export function cuspLightness(H: number): number {
 	const cached = _cuspCache.get(key);
 	if (cached !== undefined) return cached;
 
-	let bestL = 0.5;
-	let bestC = 0;
-	for (let l10 = 10; l10 < 95; l10++) {
-		const l = l10 / 100;
-		const c = maxChromaAtLH(l, H);
-		if (c > bestC) {
-			bestC = c;
-			bestL = l;
+	let lo = 0.10, hi = 0.94;
+	for (let i = 0; i < 50; i++) {
+		const m1 = lo + (hi - lo) / 3;
+		const m2 = hi - (hi - lo) / 3;
+		if (maxChromaAtLH(m1, H) < maxChromaAtLH(m2, H)) {
+			lo = m1;
+		} else {
+			hi = m2;
 		}
 	}
+	const bestL = (lo + hi) / 2;
 	_cuspCache.set(key, bestL);
 	return bestL;
+}
+
+/** Mean H-K compensation across all hues. */
+export const HK_BASE = 0.04;
+
+/** Half-amplitude of hue-dependent H-K variation. */
+export const HK_AMPLITUDE = 0.02;
+
+/** Oklch hue where the H-K effect peaks (blue). */
+export const HK_PEAK_HUE = 264;
+
+/**
+ * Hue-dependent Helmholtz-Kohlrausch compensation coefficient.
+ *
+ * The H-K effect is strongest for blue (~264°) and weakest for
+ * yellow-green (~84°). This cosine weighting replaces the flat
+ * HK_COEFF scalar with a per-hue value ranging from
+ * HK_BASE - HK_AMPLITUDE (0.02) to HK_BASE + HK_AMPLITUDE (0.06).
+ */
+export function hkCoeff(H: number): number {
+	const rad = ((H - HK_PEAK_HUE) * Math.PI) / 180;
+	return HK_BASE + HK_AMPLITUDE * Math.cos(rad);
 }
 
 /**
@@ -185,10 +208,15 @@ export function adaptiveDamping(
 	H: number,
 	base: number,
 	coeff: number,
+	ceilingL?: number,
+	ceilingValue?: number,
 ): number {
 	const cuspL = cuspLightness(H);
 	const dist = Math.abs(L - cuspL);
-	return Math.max(0.1, Math.min(1.0, base + coeff * dist));
+	const maxDamp = (ceilingL !== undefined && ceilingValue !== undefined && L > ceilingL)
+		? ceilingValue
+		: 1.0;
+	return Math.max(0.1, Math.min(maxDamp, base + coeff * dist));
 }
 
 /**
@@ -206,11 +234,13 @@ export function effectiveMaxChroma(
 	referenceHue: number,
 	dampingBase: number,
 	dampingCoeff: number,
+	dampingCeilingL?: number,
+	dampingCeilingValue?: number,
 ): number {
 	const hueMaxC = maxChromaAtLH(L, H);
 	const refMaxC = maxChromaAtLH(L, referenceHue);
 	if (hueMaxC <= refMaxC) return hueMaxC;
-	const damping = adaptiveDamping(L, H, dampingBase, dampingCoeff);
+	const damping = adaptiveDamping(L, H, dampingBase, dampingCoeff, dampingCeilingL, dampingCeilingValue);
 	return refMaxC + (hueMaxC - refMaxC) * damping;
 }
 
