@@ -39,12 +39,12 @@ export const APCA_TARGET_LC_200 = 60;
  * Smaller headroom → tighter to the floor, more vivid.
  */
 export const SHADE_HEADROOM: Record<number, number> = {
-	50:  0.075,   // tertiary: lighter whisper tint, widens L gap to shade 100
-	100: 0.025,   // secondary: slightly darker for better separation from 50
+	50:  0.093,   // tertiary: airy whisper tint (L~0.942), widens L gap to shade 100
+	100: 0.064,   // secondary: light tint (L~0.913), clear separation from 50
 	200: 0.040,   // mid-fill: compensates for chroma's H-K impact on APCA
 	300: 0.033,   // anchor: slight push below floor for headroom
 	400: 0.216,   // secondary (dark): deep enough to separate from 300
-	500: 0.291,   // tertiary (dark): very deep — background anchor
+	500: 0.253,   // tertiary (dark): deep background (L~0.328), mirrors shade 50 spacing
 };
 
 // ── Derive L targets from APCA floor + headroom ────────────────────
@@ -176,26 +176,26 @@ export const CUSP_DAMPING_COEFF = 2.0;
 /**
  * Lightness threshold above which the damping ceiling takes effect.
  *
- * Shade 50 (L~0.92) and shade 100 (L~0.87) are both above this, so
- * both get tighter compression on wide-gamut hues (green, yellow, amber).
- * Shade 200 (L~0.80) and below are unaffected.
+ * Only shade 50 (L~0.94) is above this threshold, so it gets tighter
+ * compression on wide-gamut hues (green, yellow, amber). Shade 100
+ * (L~0.91) and below use the natural adaptive damping.
  *
  * Without this ceiling, hues whose gamut cusp is far below the shade's
- * lightness (e.g. green cusp ~0.55 vs shade 50 at L~0.92) push the
+ * lightness (e.g. green cusp ~0.55 vs shade 50 at L~0.94) push the
  * adaptive damping to 1.0, effectively disabling compression and
  * producing oversaturated whisper tints.
  */
-export const DAMPING_CEILING_L = 0.85;
+export const DAMPING_CEILING_L = 0.90;
 
 /**
  * Maximum damping factor when L > DAMPING_CEILING_L.
  *
- * Calibrated against Tailwind 100–200 chroma for green/yellow/amber.
- * 0.55 reduces wide-gamut shade 50 chroma by ~45% of the excess over
- * the blue reference, landing within the 0.030–0.055 range that
- * established design systems use at equivalent lightness.
+ * Calibrated against Tailwind chroma for green/yellow/amber at shade 50.
+ * 0.70 compresses ~30% of the excess gamut over the blue reference,
+ * preventing neon whisper tints while preserving enough colour identity
+ * to avoid a grey/washed appearance.
  */
-export const DAMPING_CEILING_VALUE = 0.55;
+export const DAMPING_CEILING_VALUE = 0.70;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 

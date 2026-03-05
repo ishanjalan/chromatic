@@ -133,7 +133,7 @@ describe('generateScale lightness normalisation', () => {
 		const green = generateScale('#2E8B57', 'Green');
 		const g50 = green.shades.find((s) => s.shade === 50)!;
 		expect(g50.oklch.C).toBeGreaterThan(0.01);
-		expect(g50.oklch.L).toBeLessThan(0.925);
+		expect(g50.oklch.L).toBeLessThan(0.945);
 	});
 });
 
