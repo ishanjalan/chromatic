@@ -19,13 +19,14 @@ import {
 	normalizeHex,
 	adaptiveDamping,
 	effectiveMaxChroma,
+	dampingCeilingForHue,
 	maxChromaAtLH,
 	cuspLightness,
 	hkCoeff,
 	HK_BASE,
 	HK_AMPLITUDE
 } from './colour';
-import { REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, DAMPING_CEILING_VALUE } from './constants';
+import { REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI } from './constants';
 
 // ── sRGB ↔ Linear RGB round-trips ──────────────────────────────────
 
@@ -385,49 +386,116 @@ describe('alphaComposite', () => {
 	});
 });
 
-// ── Adaptive Damping with Ceiling ───────────────────────────────────
+// ── Hue-Adaptive Damping Ceiling ────────────────────────────────────
+
+describe('dampingCeilingForHue', () => {
+	const RED_HUE = 25;
+	const GREEN_HUE = 155;
+	const BLUE_HUE = 264;
+
+	it('returns ~0.80 for red (moderate excess) at shade 50 L', () => {
+		const result = dampingCeilingForHue(
+			0.94, RED_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(result).toBeGreaterThan(0.70);
+		expect(result).toBeLessThan(0.90);
+	});
+
+	it('returns a tight ceiling for green (wide excess) at shade 50 L', () => {
+		const result = dampingCeilingForHue(
+			0.94, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(result).toBeGreaterThan(0.50);
+		expect(result).toBeLessThan(0.75);
+	});
+
+	it('returns 1.0 for blue (excess <= 1, no ceiling needed)', () => {
+		const result = dampingCeilingForHue(
+			0.94, BLUE_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(result).toBe(1.0);
+	});
+
+	it('returns 1.0 when L is below the ceiling threshold', () => {
+		const result = dampingCeilingForHue(
+			0.80, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(result).toBe(1.0);
+	});
+
+	it('shade 100 ceiling differs from shade 50 ceiling for the same hue', () => {
+		const at50 = dampingCeilingForHue(
+			0.94, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const at100 = dampingCeilingForHue(
+			0.91, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(at50).not.toBeCloseTo(at100, 4);
+	});
+
+	it('red ceiling is looser than green ceiling at the same lightness', () => {
+		const red = dampingCeilingForHue(
+			0.94, RED_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const green = dampingCeilingForHue(
+			0.94, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		expect(red).toBeGreaterThan(green);
+	});
+});
 
 describe('adaptiveDamping with ceiling', () => {
 	const GREEN_HUE = 155;
 	const BLUE_HUE = 264;
 
-	it('caps green at shade 50 L to the ceiling value', () => {
-		const result = adaptiveDamping(0.92, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
-		expect(result).toBe(0.55);
-	});
-
-	it('caps green at shade 100 L to the ceiling value', () => {
-		const result = adaptiveDamping(0.87, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
-		expect(result).toBe(0.55);
+	it('caps green at shade 50 L to the hue-adaptive ceiling value', () => {
+		const ceiling = dampingCeilingForHue(
+			0.94, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const result = adaptiveDamping(0.94, GREEN_HUE, 0.70, 2.0, DAMPING_CEILING_L, ceiling);
+		expect(result).toBe(ceiling);
 	});
 
 	it('shade 200 L (below ceiling) is unaffected', () => {
-		const withCeiling = adaptiveDamping(0.80, GREEN_HUE, 0.70, 2.0, 0.85, 0.55);
+		const withCeiling = adaptiveDamping(0.80, GREEN_HUE, 0.70, 2.0, DAMPING_CEILING_L, 0.55);
 		const without = adaptiveDamping(0.80, GREEN_HUE, 0.70, 2.0);
 		expect(withCeiling).toBe(without);
 	});
 
-	it('without ceiling args, green at shade 50 exceeds the ceiling value', () => {
-		const result = adaptiveDamping(0.92, GREEN_HUE, 0.70, 2.0);
-		expect(result).toBeGreaterThan(DAMPING_CEILING_VALUE);
+	it('without ceiling args, green at shade 50 exceeds the green ceiling', () => {
+		const greenCeiling = dampingCeilingForHue(
+			0.94, GREEN_HUE, REFERENCE_HUE,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const result = adaptiveDamping(0.94, GREEN_HUE, 0.70, 2.0);
+		expect(result).toBeGreaterThan(greenCeiling);
 	});
 
 	it('blue hue at shade 50 never enters the damping path', () => {
-		const hueMaxC = maxChromaAtLH(0.92, BLUE_HUE);
-		const refMaxC = maxChromaAtLH(0.92, REFERENCE_HUE);
+		const hueMaxC = maxChromaAtLH(0.94, BLUE_HUE);
+		const refMaxC = maxChromaAtLH(0.94, REFERENCE_HUE);
 		expect(hueMaxC).toBeLessThanOrEqual(refMaxC);
 	});
 });
 
-describe('effectiveMaxChroma with ceiling', () => {
+describe('effectiveMaxChroma with hue-adaptive ceiling', () => {
 	it('green shade 50 effective chroma is reduced by the ceiling', () => {
 		const withCeiling = effectiveMaxChroma(
-			0.92, 155, REFERENCE_HUE,
+			0.94, 155, REFERENCE_HUE,
 			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
-			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
 		);
 		const without = effectiveMaxChroma(
-			0.92, 155, REFERENCE_HUE,
+			0.94, 155, REFERENCE_HUE,
 			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF
 		);
 		expect(withCeiling).toBeLessThan(without);
@@ -437,13 +505,29 @@ describe('effectiveMaxChroma with ceiling', () => {
 		const withCeiling = effectiveMaxChroma(
 			0.80, 155, REFERENCE_HUE,
 			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
-			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
 		);
 		const without = effectiveMaxChroma(
 			0.80, 155, REFERENCE_HUE,
 			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF
 		);
 		expect(withCeiling).toBeCloseTo(without, 6);
+	});
+
+	it('red shade 50 retains more gamut fraction than green shade 50', () => {
+		const redWith = effectiveMaxChroma(
+			0.94, 25, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const redRaw = maxChromaAtLH(0.94, 25);
+		const greenWith = effectiveMaxChroma(
+			0.94, 155, REFERENCE_HUE,
+			CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
+		);
+		const greenRaw = maxChromaAtLH(0.94, 155);
+		expect(redWith / redRaw).toBeGreaterThan(greenWith / greenRaw);
 	});
 });
 

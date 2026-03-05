@@ -220,13 +220,40 @@ export function adaptiveDamping(
 }
 
 /**
- * Gamut-width–normalised maximum chroma with cusp-aware adaptive damping.
+ * Hue-adaptive damping ceiling. Derives the maximum damping factor from
+ * the hue's gamut excess ratio over the reference hue (blue).
+ *
+ * Wide-gamut hues (green ~4x excess) get a tight ceiling; narrow-excess
+ * hues (red ~2x) get a loose one. Hues at or below the reference gamut
+ * width return 1.0 (no ceiling — damping path not entered). Below the
+ * lightness threshold, returns 1.0 (no ceiling for shades 200–500).
+ */
+export function dampingCeilingForHue(
+	L: number, H: number, referenceHue: number,
+	ceilingL: number,
+	loose: number, tight: number,
+	excessLo: number, excessHi: number,
+): number {
+	if (L <= ceilingL) return 1.0;
+	const hueMaxC = maxChromaAtLH(L, H);
+	const refMaxC = maxChromaAtLH(L, referenceHue);
+	const excessRatio = refMaxC > 0 ? hueMaxC / refMaxC : 1.0;
+	if (excessRatio <= 1.0) return 1.0;
+	const t = Math.max(0, Math.min(1,
+		(excessRatio - excessLo) / (excessHi - excessLo)));
+	return loose - t * (loose - tight);
+}
+
+/**
+ * Gamut-width–normalised maximum chroma with cusp-aware adaptive damping
+ * and hue-adaptive ceiling.
  *
  * Wide-gamut hues (where maxC exceeds the reference hue's maxC) are
  * compressed toward the reference. The compression strength adapts based
  * on how close the target lightness is to the gamut cusp for this hue.
  *
- * Parameters are passed explicitly to avoid a circular dependency on constants.
+ * When ceiling params are provided, the damping factor is capped at a
+ * hue-specific value derived from the gamut excess ratio.
  */
 export function effectiveMaxChroma(
 	L: number,
@@ -234,13 +261,21 @@ export function effectiveMaxChroma(
 	referenceHue: number,
 	dampingBase: number,
 	dampingCoeff: number,
-	dampingCeilingL?: number,
-	dampingCeilingValue?: number,
+	ceilingL?: number,
+	ceilingLoose?: number,
+	ceilingTight?: number,
+	excessLo?: number,
+	excessHi?: number,
 ): number {
 	const hueMaxC = maxChromaAtLH(L, H);
 	const refMaxC = maxChromaAtLH(L, referenceHue);
 	if (hueMaxC <= refMaxC) return hueMaxC;
-	const damping = adaptiveDamping(L, H, dampingBase, dampingCoeff, dampingCeilingL, dampingCeilingValue);
+	const ceilValue = (ceilingL !== undefined && ceilingLoose !== undefined)
+		? dampingCeilingForHue(L, H, referenceHue, ceilingL,
+			ceilingLoose, ceilingTight!, excessLo!, excessHi!)
+		: undefined;
+	const damping = adaptiveDamping(L, H, dampingBase, dampingCoeff,
+		ceilingL, ceilValue);
 	return refMaxC + (hueMaxC - refMaxC) * damping;
 }
 

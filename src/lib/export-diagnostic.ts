@@ -9,7 +9,7 @@ import type { ScaleResult, ShadeInfo } from './scale';
 import type { PaletteAudit } from './palette-audit';
 import type { ParsedFamily } from './parse-tokens';
 import { hexToRgb, rgbToOklch, apcaContrast, hueDelta, maxChromaAtLH, effectiveMaxChroma, isValidHex } from './colour';
-import { TARGET_CURVE, SHADE_LEVELS, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, DAMPING_CEILING_VALUE, BASE_RELC, RELC_STEP, ACHROMATIC_THRESHOLD } from './constants';
+import { TARGET_CURVE, SHADE_LEVELS, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF, DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI, BASE_RELC, RELC_STEP, ACHROMATIC_THRESHOLD } from './constants';
 import { TAILWIND_PALETTE } from './tailwind-palette';
 import { RADIX_PALETTE } from './radix-palette';
 import { SPECTRUM_PALETTE } from './spectrum-palette';
@@ -96,7 +96,10 @@ interface DiagnosticExport {
 		cuspDampingBase: number;
 		cuspDampingCoeff: number;
 		dampingCeilingL: number;
-		dampingCeilingValue: number;
+		ceilingLoose: number;
+		ceilingTight: number;
+		excessLo: number;
+		excessHi: number;
 		targetCurve: Record<number, { L: number; relC: number }>;
 	};
 	families: FamilyExport[];
@@ -166,7 +169,7 @@ export function buildDiagnosticExport(
 			const effMaxC = effectiveMaxChroma(
 				sh.oklch.L, sh.oklch.H, REFERENCE_HUE,
 				CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
-				DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+				DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
 			);
 			const rawMaxC = maxChromaAtLH(sh.oklch.L, sh.oklch.H);
 			const actualRelC = effMaxC > 0 ? sh.oklch.C / effMaxC : 0;
@@ -264,7 +267,10 @@ export function buildDiagnosticExport(
 			cuspDampingBase: CUSP_DAMPING_BASE,
 			cuspDampingCoeff: CUSP_DAMPING_COEFF,
 			dampingCeilingL: DAMPING_CEILING_L,
-			dampingCeilingValue: DAMPING_CEILING_VALUE,
+			ceilingLoose: CEILING_LOOSE,
+			ceilingTight: CEILING_TIGHT,
+			excessLo: EXCESS_LO,
+			excessHi: EXCESS_HI,
 			targetCurve: tc,
 		},
 		families,

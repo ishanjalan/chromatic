@@ -75,9 +75,9 @@ export const BASE_RELC = 0.50;
 export const RELC_STEP = 0.20;
 
 const SHADE_RELC_RANK: Record<number, number> = {
-	50: 0.25, 100: 1.25, 200: 2,
+	50: 0.50, 100: 1.75, 200: 2,
 	300: -1,  // sentinel — user's input chroma used
-	400: 1.5, 500: 1.0,  // asymmetric boost for dark fills
+	400: 1.25, 500: 0.75,
 };
 
 function shadeRelC(shade: number): number {
@@ -174,28 +174,35 @@ export const CUSP_DAMPING_BASE = 0.70;
 export const CUSP_DAMPING_COEFF = 2.0;
 
 /**
- * Lightness threshold above which the damping ceiling takes effect.
+ * Lightness threshold above which the hue-adaptive damping ceiling
+ * takes effect.
  *
- * Only shade 50 (L~0.94) is above this threshold, so it gets tighter
- * compression on wide-gamut hues (green, yellow, amber). Shade 100
- * (L~0.91) and below use the natural adaptive damping.
+ * Shade 50 (L~0.94) and shade 100 (L~0.91) are both above this, so
+ * both get hue-adaptive compression. Shade 200 (L~0.80) and below
+ * use the natural adaptive damping unchanged.
  *
  * Without this ceiling, hues whose gamut cusp is far below the shade's
  * lightness (e.g. green cusp ~0.55 vs shade 50 at L~0.94) push the
  * adaptive damping to 1.0, effectively disabling compression and
  * producing oversaturated whisper tints.
  */
-export const DAMPING_CEILING_L = 0.90;
+export const DAMPING_CEILING_L = 0.85;
 
 /**
- * Maximum damping factor when L > DAMPING_CEILING_L.
+ * Hue-adaptive damping ceiling interpolation constants.
  *
- * Calibrated against Tailwind chroma for green/yellow/amber at shade 50.
- * 0.70 compresses ~30% of the excess gamut over the blue reference,
- * preventing neon whisper tints while preserving enough colour identity
- * to avoid a grey/washed appearance.
+ * The ceiling value is derived at runtime from the hue's gamut excess
+ * ratio (hueMaxC / refMaxC). Wide-gamut hues (green, yellow) get a
+ * tighter ceiling; narrow-excess hues (red, pink) get a looser one.
+ *
+ * CEILING_LOOSE: ceiling for hues with minimal excess (~1.5x blue).
+ * CEILING_TIGHT: ceiling for hues with massive excess (~5x blue).
+ * EXCESS_LO / EXCESS_HI: bounds of the linear interpolation range.
  */
-export const DAMPING_CEILING_VALUE = 0.70;
+export const CEILING_LOOSE = 0.85;
+export const CEILING_TIGHT = 0.50;
+export const EXCESS_LO = 1.5;
+export const EXCESS_HI = 5.0;
 
 export const SHADE_LEVELS = [50, 100, 200, 300, 400, 500] as const;
 

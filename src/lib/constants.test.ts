@@ -18,7 +18,10 @@ import {
 	CUSP_DAMPING_BASE,
 	CUSP_DAMPING_COEFF,
 	DAMPING_CEILING_L,
-	DAMPING_CEILING_VALUE,
+	CEILING_LOOSE,
+	CEILING_TIGHT,
+	EXCESS_LO,
+	EXCESS_HI,
 	HK_BASE,
 	HK_AMPLITUDE,
 	HK_PEAK_HUE
@@ -142,26 +145,23 @@ describe('APCA-derived L targets', () => {
 // ── Equal-step relC ─────────────────────────────────────────────────
 
 describe('equal-step relC', () => {
-	it('light tertiary (50) has relC = BASE_RELC + 0.25 × RELC_STEP', () => {
-		expect(TARGET_CURVE[50].relC).toBeCloseTo(0.55, 4);
+	it('light tertiary (50) has relC = BASE_RELC + 0.50 × RELC_STEP', () => {
+		expect(TARGET_CURVE[50].relC).toBeCloseTo(0.60, 4);
 	});
 
-	it('light secondary (100) has relC = BASE_RELC + 1.25 × RELC_STEP', () => {
-		expect(TARGET_CURVE[100].relC).toBeCloseTo(0.75, 4);
+	it('light secondary (100) has relC = BASE_RELC + 1.75 × RELC_STEP', () => {
+		expect(TARGET_CURVE[100].relC).toBeCloseTo(0.85, 4);
 	});
 
 	it('primary shade (200) has relC = BASE_RELC + 2 * RELC_STEP', () => {
 		expect(TARGET_CURVE[200].relC).toBeCloseTo(BASE_RELC + 2 * RELC_STEP, 4);
 	});
 
-	it('dark fills have boosted relC (asymmetric for richer darks)', () => {
-		expect(TARGET_CURVE[400].relC).toBeCloseTo(0.80, 4);
-		expect(TARGET_CURVE[500].relC).toBeCloseTo(0.70, 4);
-	});
-
-	it('dark fills have higher relC than their light role mirrors', () => {
-		expect(TARGET_CURVE[400].relC).toBeGreaterThan(TARGET_CURVE[100].relC);
-		expect(TARGET_CURVE[500].relC).toBeGreaterThan(TARGET_CURVE[50].relC);
+	it('dark fills have meaningful relC', () => {
+		expect(TARGET_CURVE[400].relC).toBeCloseTo(0.75, 4);
+		expect(TARGET_CURVE[500].relC).toBeCloseTo(0.65, 4);
+		expect(TARGET_CURVE[400].relC).toBeGreaterThanOrEqual(0.60);
+		expect(TARGET_CURVE[500].relC).toBeGreaterThanOrEqual(0.60);
 	});
 });
 
@@ -280,13 +280,26 @@ describe('gamut normalisation constants', () => {
 		expect(DAMPING_CEILING_L).toBeLessThanOrEqual(0.95);
 	});
 
-	it('DAMPING_CEILING_VALUE is between 0.3 and 0.8', () => {
-		expect(DAMPING_CEILING_VALUE).toBeGreaterThanOrEqual(0.3);
-		expect(DAMPING_CEILING_VALUE).toBeLessThanOrEqual(0.8);
+	it('DAMPING_CEILING_L is above shade 200 L and below shade 50 L', () => {
+		expect(DAMPING_CEILING_L).toBeGreaterThan(TARGET_CURVE[200].L);
+		expect(DAMPING_CEILING_L).toBeLessThan(TARGET_CURVE[50].L);
 	});
 
-	it('DAMPING_CEILING_L is above shade 200 L and below shade 100 L', () => {
-		expect(DAMPING_CEILING_L).toBeGreaterThan(TARGET_CURVE[200].L);
-		expect(DAMPING_CEILING_L).toBeLessThan(TARGET_CURVE[100].L);
+	it('CEILING_LOOSE is greater than CEILING_TIGHT', () => {
+		expect(CEILING_LOOSE).toBeGreaterThan(CEILING_TIGHT);
+	});
+
+	it('CEILING_LOOSE is between 0.7 and 0.95', () => {
+		expect(CEILING_LOOSE).toBeGreaterThanOrEqual(0.7);
+		expect(CEILING_LOOSE).toBeLessThanOrEqual(0.95);
+	});
+
+	it('CEILING_TIGHT is between 0.3 and 0.7', () => {
+		expect(CEILING_TIGHT).toBeGreaterThanOrEqual(0.3);
+		expect(CEILING_TIGHT).toBeLessThanOrEqual(0.7);
+	});
+
+	it('EXCESS_LO is less than EXCESS_HI', () => {
+		expect(EXCESS_LO).toBeLessThan(EXCESS_HI);
 	});
 });

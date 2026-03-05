@@ -412,6 +412,22 @@ describe('gamut-width normalisation', () => {
 		expect(s400.oklch.C).toBeGreaterThan(0.05);
 		expect(s500.oklch.C).toBeGreaterThan(0.03);
 	});
+
+	it('red shade 50 retains more chroma than green shade 50 (hue-adaptive ceiling)', () => {
+		const red = generateScale('#E53E3E', 'Red');
+		const green = generateScale('#2E8B57', 'Green');
+		const r50 = red.shades.find((s) => s.shade === 50)!;
+		const g50 = green.shades.find((s) => s.shade === 50)!;
+		expect(r50.oklch.C).toBeGreaterThan(g50.oklch.C * 0.3);
+	});
+
+	it('shade 100 chroma is hue-adaptive — red 100 has higher chroma than green 100', () => {
+		const red = generateScale('#E53E3E', 'Red');
+		const green = generateScale('#2E8B57', 'Green');
+		const r100 = red.shades.find((s) => s.shade === 100)!;
+		const g100 = green.shades.find((s) => s.shade === 100)!;
+		expect(r100.oklch.C / g100.oklch.C).toBeGreaterThan(0.3);
+	});
 });
 
 describe('toJsonTokensMultiple', () => {

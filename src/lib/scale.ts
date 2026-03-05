@@ -26,7 +26,10 @@ import {
 	CUSP_DAMPING_BASE,
 	CUSP_DAMPING_COEFF,
 	DAMPING_CEILING_L,
-	DAMPING_CEILING_VALUE
+	CEILING_LOOSE,
+	CEILING_TIGHT,
+	EXCESS_LO,
+	EXCESS_HI
 } from './constants';
 import type { ShadeLevel, TextLevel } from './constants';
 import { correctedHue } from './colour-cam16';
@@ -142,7 +145,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 		// that preserves the same CAM16 perceptual hue as the anchor.
 		const estimatedC = isAchromatic ? 0 : (shade === 300 ? C_in : relC * effectiveMaxChroma(
 			tL, H, REFERENCE_HUE, CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
-			DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+			DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
 		));
 		const shadeH = isAchromatic ? H : correctedHue(H, L_in, C_in, tL, estimatedC);
 
@@ -155,7 +158,7 @@ export function generateScale(hexInput: string, name = 'Custom'): ScaleResult {
 			const effMaxC = effectiveMaxChroma(
 				tL, shadeH, REFERENCE_HUE,
 				CUSP_DAMPING_BASE, CUSP_DAMPING_COEFF,
-				DAMPING_CEILING_L, DAMPING_CEILING_VALUE
+				DAMPING_CEILING_L, CEILING_LOOSE, CEILING_TIGHT, EXCESS_LO, EXCESS_HI
 			);
 			targetC = relC * effMaxC;
 		}
